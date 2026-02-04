@@ -1,0 +1,44 @@
+#!/bin/sh
+
+echo "-- Running pre-commit hook --"
+
+skipformat=$(git config --type=bool hooks.skipformat)
+
+if [ "$skipformat" = "true" ]; then
+	exit 0
+fi
+
+builddir=$(git config --type=path hooks.builddir)
+
+if [ "$builddir" = "" ]; then
+	builddir="build"
+fi
+
+if [ ! -d "$builddir" ]; then
+	echo "ERROR: Build directory '$builddir' not found."
+	echo "Run 'cmake -B build' in the project root, or specify your build directory path through"
+	echo "git config hooks.builddir <build_dir_path>"
+	echo "before trying to commit."
+	exit 2
+fi
+
+echo "-- Running clang-format check --"
+cmake --build "$builddir" --target check-format > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+	echo ""
+	echo "COMMIT ABORTED: Code style violation(s) found during clang-format check."
+	echo ""
+	echo "You can auto-fix these violations using: cmake --build $builddir --target=fix-format"
+	echo "Or, you can check them manually using: cmake --build $builddir --target=check-format"
+	echo ""
+	echo "Note that these could be violations coming from files not staged for committing."
+	echo "If this is the case, temporarily remove non-staged changes (e.g. 'git stash --keep-index') and try again."
+	echo ""
+	echo "If you want to avoid pre-commit code style enforcement, you can do so by setting:"
+	echo "git config hooks.skipformat true"
+	exit 1
+fi
+
+echo "-- clang-format check passed, proceeding with commit --"
+exit 0

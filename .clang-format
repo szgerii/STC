@@ -1,0 +1,39 @@
+Language: Cpp
+BasedOnStyle: LLVM
+Standard: c++20
+ColumnLimit: 120
+IndentWidth: 4
+UseTab: Never
+FixNamespaceComments: true
+AccessModifierOffset: -4
+PointerAlignment: Left
+ReferenceAlignment: Left
+BinPackArguments: false
+AllowShortFunctionsOnASingleLine: Inline
+AllowShortBlocksOnASingleLine: Empty
+AllowShortEnumsOnASingleLine: false
+IndentCaseLabels: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCaseColons: false
+AlignConsecutiveAssignments: true
+BreakConstructorInitializers: BeforeColon
+PackConstructorInitializers: NextLineOnly
+BreakTemplateDeclarations: Leave
+RequiresClausePosition: WithPreceding
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterControlStatements: true
+  AfterForeachMacros: true
+  AfterFunctionDeclarationName: false
+  AfterFunctionDefinitionName: false
+  AfterIfMacros: true
+  AfterOverloadedOperator: false
+  AfterPlacementOperator: false
+  AfterRequiresInClause: true
+  AfterRequiresInExpression: true
+  BeforeNonEmptyParentheses: false
+AllowShortCompoundRequirementOnASingleLine: true
+
