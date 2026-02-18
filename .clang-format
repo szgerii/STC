@@ -8,11 +8,13 @@ FixNamespaceComments: true
 AccessModifierOffset: -4
 PointerAlignment: Left
 ReferenceAlignment: Left
-BinPackArguments: false
+BinPackArguments: true
+BinPackParameters: BinPack
 AllowShortFunctionsOnASingleLine: Inline
 AllowShortBlocksOnASingleLine: Empty
 AllowShortEnumsOnASingleLine: false
 AllowShortIfStatementsOnASingleLine: WithoutElse
+AlignAfterOpenBracket: true
 IndentCaseLabels: true
 AlignConsecutiveShortCaseStatements:
   Enabled: true
@@ -44,4 +46,3 @@ SpaceBeforeParensOptions:
   AfterRequiresInExpression: true
   BeforeNonEmptyParentheses: false
 AllowShortCompoundRequirementOnASingleLine: true
-

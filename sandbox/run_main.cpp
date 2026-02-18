@@ -1,4 +1,7 @@
 #include <iostream>
+#include <ir/type_descriptors.h>
+#include <ir/type_pool.h>
+#include <ir/types.h>
 #include <julia.h>
 #include <temp.h>
 
