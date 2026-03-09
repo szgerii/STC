@@ -40,7 +40,7 @@ struct BoolTD {
 
 struct IntTD {
     uint32_t width;
-    bool signedness;
+    bool is_signed;
 
     constexpr bool operator==(const IntTD&) const = default;
 };
@@ -76,19 +76,27 @@ struct VectorTD {
 };
 
 struct MatrixTD {
+    struct MatrixInfo {
+        uint32_t rows;
+        uint32_t cols;
+        TypeId component_type;
+    };
+
     TypeId column_type_id;
     uint32_t column_count;
 
     constexpr bool operator==(const MatrixTD&) const = default;
 
-    static std::pair<uint32_t, uint32_t> get_dims(TypeId mat_id, const TypePool& type_pool);
+    static MatrixInfo get_info(TypeId mat_id, const TypePool& type_pool);
 };
 
 struct ArrayTD {
     TypeId element_type_id;
     uint32_t length;
 
-    bool operator==(const ArrayTD&) const = default;
+    constexpr bool operator==(const ArrayTD&) const = default;
+
+    static std::vector<uint32_t> get_dims(TypeId arr_id, const TypePool& type_pool);
 };
 
 struct StructData {
@@ -96,13 +104,13 @@ struct StructData {
         TypeId type;
         std::string name;
 
-        bool operator==(const FieldInfo&) const = default;
+        constexpr bool operator==(const FieldInfo&) const = default;
     };
 
     std::string name;
     std::vector<FieldInfo> fields;
 
-    bool operator==(const StructData&) const = default;
+    constexpr bool operator==(const StructData&) const = default;
 };
 
 struct StructTD {
@@ -145,6 +153,7 @@ struct TypeDescriptor {
 
     template <CTypeDescriptorTy T>
     constexpr const T& as() const {
+        assert(is<T>() && "invalid cast from TypeDescriptor to a CTypeDescriptorTy");
         return std::get<T>(type_data);
     }
 
@@ -183,7 +192,7 @@ struct std::hash<stc::ir::BoolTD> {
 template <>
 struct std::hash<stc::ir::IntTD> {
     size_t operator()(const stc::ir::IntTD& x) const noexcept {
-        return stc::hash_combine(std::hash<uint32_t>{}(x.width), x.signedness);
+        return stc::hash_combine(std::hash<uint32_t>{}(x.width), x.is_signed);
     }
 };
 

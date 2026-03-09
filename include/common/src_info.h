@@ -66,6 +66,11 @@ public:
     // ! expects arena to not be modified by others, only inspected
     explicit SrcInfoManager(ArenaTy& arena, size_t initial_file_capacity = 4);
 
+    SrcInfoManager(const SrcInfoManager&)            = delete;
+    SrcInfoManager(SrcInfoManager&&)                 = default;
+    SrcInfoManager& operator=(const SrcInfoManager&) = delete;
+    SrcInfoManager& operator=(SrcInfoManager&&)      = default;
+
     [[nodiscard]] SrcLocationId make_location(uint32_t line, uint32_t col);
     [[nodiscard]] uint64_t make_file(std::string path);
 

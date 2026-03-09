@@ -1,3 +1,4 @@
+#include <backends/glsl/code_gen.h>
 #include <iostream>
 #include <ir/ast_dumper.h>
 
@@ -5,8 +6,9 @@
 int main() { // NOLINT
     using namespace stc;
     using namespace stc::ir;
+    using namespace stc::glsl;
 
-    ASTCtx ctx{};
+    GLSLCtx ctx{};
     ASTDumper dumper{ctx, std::cout};
     SrcLocationId loc{0};
 
@@ -26,9 +28,10 @@ int main() { // NOLINT
 
     auto ret = ctx.alloc_node<ReturnStmt>(loc, false_lit).first;
 
+    auto ret_cmpd   = ctx.alloc_node<CompoundStmt>(loc, std::vector<NodeId>{ret}).first;
     auto empty_cmpd = ctx.alloc_node<CompoundStmt>(loc, std::vector<NodeId>{}).first;
 
-    auto if_stmt = ctx.alloc_node<IfStmt>(loc, true_lit, ret, empty_cmpd).first;
+    auto if_stmt = ctx.alloc_node<IfStmt>(loc, true_lit, ret_cmpd, empty_cmpd).first;
 
     auto cmpd = ctx.alloc_node<CompoundStmt>(loc, std::vector<NodeId>{if_stmt, binop2}).first;
 
@@ -39,6 +42,14 @@ int main() { // NOLINT
 
     dumper.visit(vdecl_no_init);
     dumper.visit(vdecl_with_init);
+
+    GLSLCodeGenVisitor codegen{ctx};
+
+    codegen.visit(NodeId{cmpd});
+
+    std::cout << codegen.result();
+
+    std::cout << "code gen " << (codegen.success() ? "was successful" : "failed");
 
     return 0;
 }

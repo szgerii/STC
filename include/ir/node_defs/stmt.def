@@ -4,6 +4,7 @@
 
 STC_X_FIRST(CompoundStmt, Compound)
 STC_X(IfStmt, If)
+STC_X(ScopedStmt, ScopedStmt)
 STC_X_LAST(ReturnStmt, Return)
 
 #include "common/x_macros/end_def.inc"

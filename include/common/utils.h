@@ -14,8 +14,8 @@
 
 namespace stc {
 
-inline std::string indent(size_t level) {
-    return STC_USE_TABS ? std::string(level, '\t') : std::string(level * STC_DUMP_INDENT, ' ');
+inline std::string indent(size_t level, size_t unit_width) {
+    return STC_USE_TABS ? std::string(level, '\t') : std::string(level * unit_width, ' ');
 }
 
 std::nullptr_t report(std::string_view msg, bool is_warning, std::ostream& out = std::cerr);

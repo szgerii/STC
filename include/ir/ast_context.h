@@ -28,7 +28,33 @@ public:
         return node_arena.emplace<T>(std::forward<Args>(args)...);
     }
 
-    NodeBase* get_node(NodeId id) const;
+    inline NodeBase* get_node(NodeId id) const {
+        return static_cast<NodeBase*>(node_arena.get_ptr(id));
+    }
+
+    template <typename T>
+    inline T* get_dyn(NodeId id) const {
+        return dyn_cast<T>(get_node(id));
+    }
+
+    inline Decl* get_decl(NodeId id) const { return get_dyn<Decl>(id); }
+    inline Stmt* get_stmt(NodeId id) const { return get_dyn<Stmt>(id); }
+    inline Expr* get_expr(NodeId id) const { return get_dyn<Expr>(id); }
+
+    // helper, mainly meant for debug assertions
+    template <typename T>
+    bool isa(NodeId id) const {
+        if (id == NodeId::null_id())
+            return false;
+
+        NodeBase* node = static_cast<NodeBase*>(node_arena.get_ptr(id));
+        assert(node != nullptr);
+
+        return dyn_cast<T>(node) != nullptr;
+    }
+
+    operator const TypePool&() const { return type_pool; }
+    operator const SrcInfoManager&() const { return src_info_manager; }
 };
 
 }; // namespace stc::ir

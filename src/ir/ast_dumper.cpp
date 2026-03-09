@@ -44,7 +44,7 @@ std::string ASTDumper::type_str(TypeId id) const {
 }
 
 std::string ASTDumper::indent() const {
-    return stc::indent(indent_level);
+    return stc::indent(indent_level, STC_DUMP_INDENT);
 }
 
 void ASTDumper::inc_indent(size_t level) {
@@ -64,11 +64,11 @@ void ASTDumper::visit_VarDecl(VarDecl& var_decl) {
     out << indent() << "VarDecl: '" << var_decl.identifier << "' <: " << type_str(var_decl.type)
         << '\n';
 
-    if (var_decl.initializer.has_value()) {
+    if (!var_decl.initializer.is_null()) {
         out << indent() << label("initializer");
 
         inc_indent();
-        visit(*var_decl.initializer);
+        visit(var_decl.initializer);
         dec_indent();
     }
 }
@@ -128,7 +128,7 @@ void ASTDumper::visit_VectorLiteral(VectorLiteral& vec_lit) {
 void ASTDumper::visit_MatrixLiteral(MatrixLiteral& mat_lit) {
     out << indent() << "MatrixLiteral (" << type_str(mat_lit.type()) << "):\n";
 
-    auto [rows, cols] = MatrixTD::get_dims(mat_lit.type(), ctx.type_pool);
+    auto [rows, cols, comp_type] = MatrixTD::get_info(mat_lit.type(), ctx.type_pool);
     assert((size_t)(rows * cols) == mat_lit.data.size() &&
            "invalid number of elements in matrix literal");
 
@@ -155,9 +155,14 @@ void ASTDumper::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
 void ASTDumper::visit_StructInstantiationLiteral(StructInstantiationLiteral& si_lit) {
     out << indent() << "StructInstantiationLiteral (" << type_str(si_lit.type()) << "):\n";
 
-    size_t f_idx = 1;
-    for (auto& [f_name, f_value] : si_lit.field_values) {
-        out << indent() << label(std::format("field #{} => '{}'", f_idx, f_name));
+    assert(ctx.type_pool.is_type_of<StructTD>(si_lit.type()));
+    const StructData* s_data = ctx.type_pool.get_td(si_lit.type()).as<StructTD>().data;
+    assert(s_data != nullptr);
+
+    size_t f_idx = 0;
+    for (NodeId f_value : si_lit.field_values) {
+        out << indent()
+            << label(std::format("field #{} <=> '{}'", f_idx + 1, s_data->fields[f_idx].name));
 
         inc_indent();
         visit(f_value);
@@ -165,6 +170,14 @@ void ASTDumper::visit_StructInstantiationLiteral(StructInstantiationLiteral& si_
 
         f_idx++;
     }
+}
+
+void ASTDumper::visit_ScopedExpr(ScopedExpr& scoped_expr) {
+    out << "ScopedExpr:\n";
+
+    inc_indent();
+    visit(scoped_expr.inner_expr);
+    dec_indent();
 }
 
 void ASTDumper::visit_BinaryOp(BinaryOp& bin_op) {
@@ -185,7 +198,7 @@ void ASTDumper::visit_ExplicitCast(ExplicitCast& expl_cast) {
     out << indent() << "ExplicitCast to '" << type_str(expl_cast.type()) << "':\n";
 
     inc_indent();
-    visit(expl_cast.base);
+    visit(expl_cast.inner);
     dec_indent();
 }
 
@@ -196,6 +209,13 @@ void ASTDumper::visit_DeclRefExpr(DeclRefExpr& decl_ref) {
     assert(decl != nullptr && "decl ref expr points to nullptr, or a non-decl node");
 
     out << indent() << "DeclRefExpr to '" << decl->identifier << "'\n";
+}
+
+void ASTDumper::visit_ScopedStmt(ScopedStmt& scoped_stmt) {
+    out << "ScopedStmt:\n";
+    inc_indent();
+    visit(scoped_stmt.inner_stmt);
+    dec_indent();
 }
 
 void ASTDumper::visit_CompoundStmt(CompoundStmt& cmpd_stmt) {

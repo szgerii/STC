@@ -26,6 +26,11 @@ public:
         assert(arena.get_current_offset() == 3);
     }
 
+    TypePool(const TypePool&)            = delete;
+    TypePool(TypePool&&)                 = delete;
+    TypePool& operator=(const TypePool&) = delete;
+    TypePool& operator=(TypePool&&)      = delete;
+
     const TypeDescriptor& get_td(TypeId id) const;
 
     template <CTypeDescriptorTy T>
@@ -40,8 +45,9 @@ public:
 
     [[nodiscard]] static TypeId void_td() { return TypeId::void_id(); }
     [[nodiscard]] static TypeId bool_td() { return TypeId::bool_id(); }
-    [[nodiscard]] TypeId int_td(uint32_t width, bool signedness);
-    [[nodiscard]] TypeId float_td(uint32_t width, FloatTD::Encoding encoding);
+    [[nodiscard]] TypeId int_td(uint32_t width, bool is_signed);
+    [[nodiscard]] TypeId float_td(uint32_t width,
+                                  FloatTD::Encoding encoding = FloatTD::Encoding::ieee754);
     [[nodiscard]] TypeId vector_td(TypeId component_type_id, uint32_t component_count);
     [[nodiscard]] TypeId matrix_td(TypeId column_type_id, uint32_t column_count);
     [[nodiscard]] TypeId array_td(TypeId element_type_id, uint32_t length);

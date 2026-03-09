@@ -13,7 +13,8 @@ Checks: >
   -cppcoreguidelines-pro-type-vararg,
   -readability-braces-around-statements,
   -cppcoreguidelines-macro-usage,
-  -readability-redundant-member-init
+  -readability-redundant-member-init,
+  -cppcoreguidelines-avoid-do-while
 
 CheckOptions:
   readability-magic-numbers.IgnorePowersOf2IntegerValues: true

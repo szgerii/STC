@@ -28,12 +28,13 @@ concept CIsASTVisitorImpl = requires (ImplTy v) {
 // when declarations aren't generated automatically, a static_assert on the CIsASTVisitorImpl
 // concept can be used to turn linker errors into compile-time concept-based errors (with automatic
 // declarations, this will pass and errors will only be generated at link-time)
-template <typename ImplTy, typename RetTy = void>
+template <typename ImplTy, typename RetTy = void, typename CtxTy = ASTCtx>
+requires std::derived_from<CtxTy, ASTCtx>
 class ASTVisitor {
 protected:
-    ASTCtx& ctx;
+    CtxTy& ctx;
 
-    explicit ASTVisitor(ASTCtx& ast_context)
+    explicit ASTVisitor(CtxTy& ast_context)
         : ctx{ast_context} {}
 
 private:

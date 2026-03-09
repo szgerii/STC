@@ -26,8 +26,8 @@ TypeId TypePool::insert(TDVariantType type, bool purge_duplicates) {
     return static_cast<TypeId>(id);
 }
 
-TypeId TypePool::int_td(uint32_t width, bool signedness) {
-    return insert(IntTD{.width = width, .signedness = signedness});
+TypeId TypePool::int_td(uint32_t width, bool is_signed) {
+    return insert(IntTD{.width = width, .is_signed = is_signed});
 }
 
 TypeId TypePool::float_td(uint32_t width, FloatTD::Encoding encoding) {

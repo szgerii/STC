@@ -25,6 +25,11 @@ namespace stc::ir {
 
 struct NodeId : public StrongId<uint32_t> {
     using StrongId::StrongId;
+
+    inline bool is_null() const { return *this == null_id(); }
+
+    // TODO: enforce in arenas
+    static constexpr NodeId null_id() { return 0U; }
 };
 
 // ============
@@ -93,7 +98,6 @@ struct NodeBase {
 
 struct Decl : public NodeBase {
     // CLEANUP: better packing for decl, string interning
-
     std::string identifier;
 
     explicit Decl(SrcLocationId location, NodeKind kind, std::string identifier)
@@ -129,10 +133,10 @@ struct Stmt : public NodeBase {
 
 struct VarDecl : public Decl {
     TypeId type;
-    std::optional<NodeId> initializer;
+    NodeId initializer;
 
     explicit VarDecl(SrcLocationId location, std::string var_name, TypeId type,
-                     std::optional<NodeId> initializer = std::nullopt)
+                     NodeId initializer = NodeId::null_id())
         : Decl{location, NodeKind::VarDecl, std::move(var_name)},
           type{type},
           initializer{initializer} {}
@@ -152,12 +156,14 @@ struct ParamDecl : public Decl {
 struct FunctionDecl : public Decl {
     TypeId return_type;
     std::vector<NodeId> param_decls;
+    NodeId body;
 
     explicit FunctionDecl(SrcLocationId location, std::string fn_name, TypeId return_type,
-                          std::vector<NodeId> param_decls)
+                          std::vector<NodeId> param_decls, NodeId body = NodeId::null_id())
         : Decl{location, NodeKind::FuncDecl, std::move(fn_name)},
           return_type{return_type},
-          param_decls{std::move(param_decls)} {}
+          param_decls{std::move(param_decls)},
+          body{body} {}
 
     SAME_NODE_T_DEF(NodeKind::FuncDecl)
 };
@@ -263,14 +269,21 @@ struct ArrayLiteral : public Expr {
 };
 
 struct StructInstantiationLiteral : public Expr {
-    std::vector<std::pair<std::string, NodeId>> field_values;
+    std::vector<NodeId> field_values;
 
     explicit StructInstantiationLiteral(SrcLocationId location, TypeId struct_type,
-                                        std::vector<std::pair<std::string, NodeId>> field_values)
+                                        std::vector<NodeId> field_values)
         : Expr{location, NodeKind::StructInstLit, struct_type},
           field_values{std::move(field_values)} {}
 
     SAME_NODE_T_DEF(NodeKind::StructInstLit)
+};
+
+struct ScopedExpr : public Expr {
+    NodeId inner_expr;
+
+    explicit ScopedExpr(SrcLocationId location, NodeId inner_expr, TypeId type)
+        : Expr{location, NodeKind::ScopedExpr, type}, inner_expr{inner_expr} {}
 };
 
 struct BinaryOp : public Expr {
@@ -288,10 +301,10 @@ struct BinaryOp : public Expr {
 };
 
 struct ExplicitCast : public Expr {
-    NodeId base;
+    NodeId inner;
 
-    explicit ExplicitCast(SrcLocationId location, NodeId base, TypeId target_type)
-        : Expr{location, NodeKind::ExplCast, target_type}, base{base} {}
+    explicit ExplicitCast(SrcLocationId location, NodeId inner, TypeId target_type)
+        : Expr{location, NodeKind::ExplCast, target_type}, inner{inner} {}
 
     SAME_NODE_T_DEF(NodeKind::ExplCast)
 };
@@ -317,6 +330,13 @@ struct CompoundStmt : public Stmt {
         : Stmt{location, NodeKind::Compound}, body{std::move(body)} {}
 
     SAME_NODE_T_DEF(NodeKind::Compound)
+};
+
+struct ScopedStmt : public Stmt {
+    NodeId inner_stmt;
+
+    explicit ScopedStmt(SrcLocationId location, NodeId inner_stmt)
+        : Stmt{location, NodeKind::ScopedStmt}, inner_stmt{inner_stmt} {}
 };
 
 struct IfStmt : public Stmt {

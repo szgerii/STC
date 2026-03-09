@@ -30,15 +30,33 @@ std::string to_string(FPEnc enc) {
 
 namespace stc::ir {
 
-std::pair<uint32_t, uint32_t> MatrixTD::get_dims(TypeId mat_id, const TypePool& type_pool) {
-    assert(type_pool.is_type_of<MatrixTD>(mat_id) && "mat_id points to non-Matrix type");
+MatrixTD::MatrixInfo MatrixTD::get_info(TypeId mat_id, const TypePool& type_pool) {
+    assert(type_pool.is_type_of<MatrixTD>(mat_id) && "mat_id points to non-matrix type");
     MatrixTD mat_td = type_pool.get_td(mat_id).as<MatrixTD>();
 
     assert(type_pool.is_type_of<VectorTD>(mat_td.column_type_id) &&
            "non-vector column type in matrix");
     VectorTD vec_td = type_pool.get_td(mat_td.column_type_id).as<VectorTD>();
 
-    return {vec_td.component_count, mat_td.column_count};
+    return {.rows           = vec_td.component_count,
+            .cols           = mat_td.column_count,
+            .component_type = vec_td.component_type_id};
+}
+
+std::vector<uint32_t> ArrayTD::get_dims(TypeId arr_id, const TypePool& type_pool) {
+    assert(type_pool.is_type_of<ArrayTD>(arr_id) && "arr_id points to non-array type");
+
+    std::vector<uint32_t> dims{};
+
+    const TypeDescriptor* it_td = &type_pool.get_td(arr_id);
+    do {
+        ArrayTD it_arr_td = it_td->as<ArrayTD>();
+        dims.push_back(it_arr_td.length);
+
+        it_td = &type_pool.get_td(it_arr_td.element_type_id);
+    } while (it_td->is_array());
+
+    return dims;
 }
 
 bool StructTD::operator==(const StructTD& other) const {
@@ -64,7 +82,7 @@ std::string to_string(const TypeDescriptor& type, const TypePool& type_pool) {
         } else if constexpr (std::is_same_v<T, BoolTD>) {
             return "bool";
         } else if constexpr (std::is_same_v<T, IntTD>) {
-            return std::format("{}i{}", arg.signedness ? "s" : "u", arg.width);
+            return std::format("{}i{}", arg.is_signed ? "s" : "u", arg.width);
         } else if constexpr (std::is_same_v<T, FloatTD>) {
             return std::format("f{}{}{}", arg.width, FloatTD::required_width(arg.enc) ? "!" : "",
                                arg.enc == FloatTD::Encoding::ieee754

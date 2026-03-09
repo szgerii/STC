@@ -44,8 +44,8 @@ SrcLocationId SrcInfoManager::make_location(uint32_t line, uint32_t col) {
         return invalid_location_id;
     }
 
-    auto [id, _] = arena_alloc.emplace(line, col);
-    last_loc_id  = id;
+    auto [id, _ptr] = arena_alloc.emplace(line, col);
+    last_loc_id     = id;
     return id;
 }
 
