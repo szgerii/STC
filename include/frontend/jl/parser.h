@@ -25,6 +25,11 @@ public:
         cur_loc     = ctx.src_info_pool.get_location(1, 1);
     }
 
+    explicit JLParser(TranspilerConfig config)
+        : JLParser{} {
+        ctx.config = std::move(config);
+    }
+
     NodeId parse(jl_value_t* node);
     NodeId parse_code(std::string_view code);
 

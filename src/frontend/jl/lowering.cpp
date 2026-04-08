@@ -1,9 +1,17 @@
 #include "frontend/jl/lowering.h"
 #include "sir/ast.h"
+#include "types/type_to_string.h"
 
 namespace {
 
 using SIRNodeId = stc::sir::NodeId;
+using namespace stc::jl;
+
+[[nodiscard]] STC_FORCE_INLINE bool is_ret_type_allowed(const TypeDescriptor& ret_type) {
+    return ret_type.is_scalar() || ret_type.is_vector() || ret_type.is_matrix() ||
+           ret_type.is_array() || ret_type.is_struct() ||
+           ret_type.is_builtin(BuiltinTypeKind::Nothing);
+}
 
 } // namespace
 
@@ -36,8 +44,12 @@ SIRNodeId JLLoweringVisitor::internal_error(std::string_view msg) {
 SIRNodeId JLLoweringVisitor::visit_and_check(NodeId id) {
     SIRNodeId result = visit(id);
 
-    if (result.is_null())
-        return internal_error("null_id returned by a node in the Julia -> SIR lowering visitor.");
+    if (result.is_null()) {
+        if (success)
+            internal_error("null_id returned by a node in the Julia -> SIR lowering visitor.");
+
+        return SIRNodeId::null_id();
+    }
 
     return result;
 }
@@ -157,6 +169,13 @@ SIRNodeId JLLoweringVisitor::visit_VarDecl(VarDecl& var) {
 }
 
 SIRNodeId JLLoweringVisitor::visit_MethodDecl(MethodDecl& method) {
+    if (method.ret_type.is_null() ||
+        !is_ret_type_allowed(sir_ctx.type_pool.get_td(method.ret_type))) {
+
+        return fail(std::format("cannot lower function with return type '{}'",
+                                type_to_string(method.ret_type, sir_ctx, sir_ctx)));
+    }
+
     std::vector<SIRNodeId> params;
     params.reserve(method.param_decls.size());
 
@@ -166,8 +185,6 @@ SIRNodeId JLLoweringVisitor::visit_MethodDecl(MethodDecl& method) {
     SIRNodeId body = visit_and_check(method.body);
 
     SIRNodeId scoped_body = emplace_node<sir::ScopedStmt>(sir_ctx.get_node(body)->location, body);
-
-    // TODO: wrap last expr in return if not
 
     swap_lower_type(method.ret_type);
 

@@ -36,8 +36,8 @@ concept CEqualityComparable = requires (T a, T b) {
     { std::equal_to<T>{}(a, b) } -> std::same_as<bool>;
 };
 
-inline std::string indent(size_t level, size_t unit_width) {
-    return STC_USE_TABS ? std::string(level, '\t') : std::string(level * unit_width, ' ');
+inline std::string indent(size_t level, size_t unit_width, bool use_tabs) {
+    return use_tabs ? std::string(level, '\t') : std::string(level * unit_width, ' ');
 }
 
 void report(std::string_view msg, std::string_view prefix = ""sv, std::ostream& out = std::cerr);

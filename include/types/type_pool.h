@@ -14,6 +14,7 @@ class TypePool final {
     using ArenaTy = BumpArena<SizeTy>;
 
     TypeId any_func = TypeId::null_id();
+    std::unordered_map<uint8_t, std::string> builtin_str_map{};
 
 public:
     explicit TypePool(SizeTy initial_capacity)
@@ -78,16 +79,30 @@ public:
     // compares based on pointer equality
     [[nodiscard]] bool is_any_func(const TypeDescriptor* fn_td) const;
 
-    [[nodiscard]] TypeId builtin_td(uint8_t kind);
+    [[nodiscard]] TypeId builtin_td(BuiltinKind kind);
 
-    template <CEnumOf<uint8_t> T>
+    template <CEnumOf<BuiltinKind> T>
     TypeId builtin_td(T kind) {
-        return builtin_td(static_cast<uint8_t>(kind));
+        return builtin_td(static_cast<BuiltinKind>(kind));
     }
 
     [[nodiscard]] TypeId get_struct_td(SymbolId name);
     TypeId make_struct_td(SymbolId name, std::vector<StructData::FieldInfo> fields,
                           const SymbolPool& sym_pool);
+
+    void register_builtin_str(BuiltinKind kind, std::string str);
+    template <CEnumOf<BuiltinKind> T>
+    void register_builtin_str(T kind, std::string str) {
+        return register_builtin_str(static_cast<BuiltinKind>(kind), str);
+    }
+
+    void clear_builtin_str_map();
+
+    std::string builtin_kind_to_str(BuiltinKind kind) const;
+    template <CEnumOf<BuiltinKind> T>
+    std::string builtin_kind_to_str(T kind) {
+        return builtin_kind_to_str(static_cast<BuiltinKind>(kind));
+    }
 
 private:
     TypeId get(TDVariantType type) const;

@@ -2,6 +2,7 @@
 
 #include <iostream>
 
+#include "common/config.h"
 #include "frontend/jl/visitor.h"
 
 namespace stc::jl {
@@ -27,8 +28,8 @@ private:
     std::string type_str(TypeId type_id) const;
     std::string_view sym(SymbolId sym_id) const;
     std::string indent() const;
-    void inc_indent(size_t level = STC_DUMP_INDENT);
-    void dec_indent(size_t level = STC_DUMP_INDENT);
+    void inc_indent();
+    void dec_indent();
 };
 
 static_assert(CJLVisitorImpl<JLDumper, void>);

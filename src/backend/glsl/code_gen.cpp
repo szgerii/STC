@@ -1,6 +1,7 @@
 #include "backend/glsl/types.h"
 
 #include "backend/glsl/code_gen.h"
+#include "common/config.h"
 
 namespace {
 
@@ -34,7 +35,7 @@ inline char bin_op_kind_str(BinOpKind op) {
 namespace stc::glsl {
 
 std::string GLSLCodeGenVisitor::indent() const {
-    return stc::indent(indent_level, STC_CG_INDENT);
+    return stc::indent(indent_level, ctx.config.code_gen_indent, ctx.config.use_tabs);
 }
 
 // ================
@@ -56,7 +57,7 @@ void GLSLCodeGenVisitor::visit_VarDecl(VarDecl& var_decl) {
 void GLSLCodeGenVisitor::visit_FunctionDecl(FunctionDecl& fn_decl) {
     assert(ctx.isa<ScopedStmt>(fn_decl.body) && "non-scoped-stmt function body not caught by sema");
 
-    out << indent() << type_str(fn_decl.return_type, ctx.type_pool, ctx.sym_pool) << " "
+    out << type_str(fn_decl.return_type, ctx.type_pool, ctx.sym_pool) << " "
         << ctx.get_sym(fn_decl.identifier) << '(';
 
     for (size_t i = 0; i < fn_decl.param_decls.size(); i++) {

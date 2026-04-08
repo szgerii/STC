@@ -108,51 +108,31 @@ private:
     }
 
     JLScope& push_scope(ScopeKind scope_kind, CompoundExpr& body) {
-        return scopes.emplace_back(scope_kind, body);
+        return scopes.emplace_back(scope_kind, body, scopes.size() + 1, ctx);
     }
 
-    void pop_scope(bool is_global = false) {
-        assert_scopes_notempty();
+    static SymbolId get_usym_for(SymbolId sym_id, SymbolPool& sym_pool) {
+        static size_t current_usym_id = 0U;
+        static constexpr std::string usym_infix{"_stc_usym_"};
 
-        // is_global is mostly just for catching accidental global scope pops (for now)
-        if (is_global && scopes.size() != 1) {
-            stc::internal_error("trying to pop non-global scope, but is_global argument is set to "
-                                "true in pop_scope function");
-            return;
-        }
+        if (sym_id.is_null())
+            throw std::logic_error{"Trying to create usym for null symbol"};
 
-        if (!is_global && scopes.size() == 1) {
-            stc::internal_error("trying to pop global scope, without setting is_global argument to "
-                                "true in pop_scope function");
-            return;
-        }
+        auto sym_str = sym_pool.get_symbol_maybe(sym_id);
+        if (!sym_str.has_value())
+            throw std::logic_error{"Trying to create usym for symbol not in symbol pool"};
 
-        // uses index lookup for scopes and dmq, because visit_method_body could force scopes or
-        // dmq to grow, potentially creating dangling references/invalidated iterators
+        SymbolId id =
+            sym_pool.get_id(std::string{*sym_str} + usym_infix + std::to_string(current_usym_id));
 
-        size_t scope_idx = scopes.size() - 1;
-        for (size_t i = 0; i < scopes[scope_idx].deferred_method_queue.size(); i++) {
-            NodeId m_id = scopes[scope_idx].deferred_method_queue[i];
-            auto* mdecl = ctx.get_and_dyn_cast<MethodDecl>(m_id);
-
-            if (mdecl == nullptr) {
-                Expr* expr = ctx.get_node(m_id);
-
-                if (expr == nullptr)
-                    stc::internal_error("Invalid node id in deferred method body visitor queue");
-                else
-                    internal_error("non-method-declaration node found in deferred method body "
-                                   "visitor queue",
-                                   *expr);
-
-                continue;
-            }
-
-            visit_method_body(*mdecl);
-        }
-
-        scopes.pop_back();
+        current_usym_id++;
+        return id;
     }
+
+    // should be called just before a scope is popped
+    bool mangle_scope(JLScope& scope);
+
+    void pop_scope(bool is_global = false, bool skip_mangle = false);
 
     const JLScope& current_scope() const {
         assert_scopes_notempty();
@@ -247,17 +227,21 @@ private:
     TypeId warn(std::string_view msg, const Expr& expr);
     TypeId internal_error(std::string_view msg, const Expr& expr);
 
+    // TODO: make this not the case:
+    // ! all local scope pushing should be handled through ScopeRAII, since push_scope doesn't run
+    // ! the symbol resolution pass by default
     class ScopeRAII {
         using ParamDecls = std::span<std::reference_wrapper<ParamDecl>>;
 
         JLSema& sema;
+        JLScope& scope;
+        bool skip_mangle;
         bool _success = true;
 
     public:
         explicit ScopeRAII(JLSema& sema, ScopeKind scope_kind, CompoundExpr& scope_body,
-                           ParamDecls param_decls = {})
-            : sema{sema} {
-            sema.push_scope(scope_kind, scope_body);
+                           ParamDecls param_decls = {}, bool skip_mangle = false)
+            : sema{sema}, scope{sema.push_scope(scope_kind, scope_body)}, skip_mangle{skip_mangle} {
 
             SymbolRes res{sema.ctx, sema.scopes, sema.is_interactive()};
 
@@ -266,6 +250,11 @@ private:
 
             res.visit(&scope_body);
             _success = res.finalize();
+
+            if (sema.ctx.config.dump_scopes) {
+                std::cout << "scope dump after symbol resolution:\n";
+                scope.dump(sema.ctx);
+            }
         }
 
         explicit ScopeRAII(JLSema& sema, ScopeKind scope_kind, NodeId scope_body_id,
@@ -274,12 +263,20 @@ private:
 
         ~ScopeRAII() {
             try {
-                sema.pop_scope();
+                if (sema.ctx.config.dump_scopes) {
+                    std::cout << "scope dump before popping:\n";
+                    scope.dump(sema.ctx);
+                }
+
+                sema.pop_scope(scope.type() == ScopeType::Global, skip_mangle);
             } catch (std::exception& e) {
-                stc::internal_error("exception thrown while popping scope, see message below:");
+                stc::internal_error(std::format(
+                    "exception thrown while popping scope at depth #{}, see message below:",
+                    scope.depth()));
                 std::cerr << e.what() << '\n';
             } catch (...) {
-                stc::internal_error("exception thrown while popping scope");
+                stc::internal_error(std::format("exception thrown while popping scope at depth #{}",
+                                                scope.depth()));
             }
         }
 

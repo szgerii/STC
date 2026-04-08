@@ -143,15 +143,17 @@ struct FunctionTD {
     bool operator==(const FunctionTD& other) const = default;
 };
 
+using BuiltinKind = uint8_t;
+
 struct BuiltinTD {
-    const uint8_t kind;
+    const BuiltinKind kind;
 
     constexpr explicit BuiltinTD(uint8_t kind)
         : kind{kind} {}
 
-    template <CEnumOf<uint8_t> T>
+    template <CEnumOf<BuiltinKind> T>
     constexpr BuiltinTD(T kind)
-        : kind{static_cast<uint8_t>(kind)} {}
+        : kind{static_cast<BuiltinKind>(kind)} {}
 
     bool operator==(const BuiltinTD& other) const { return kind == other.kind; }
 };
@@ -189,6 +191,15 @@ struct TypeDescriptor {
     constexpr bool is_method() const { return is<MethodTD>(); }
     constexpr bool is_function() const { return is<FunctionTD>(); }
     constexpr bool is_builtin() const { return is<BuiltinTD>(); }
+
+    constexpr bool is_builtin(BuiltinKind kind) const {
+        return is_builtin() && as<BuiltinTD>().kind == kind;
+    }
+
+    template <CEnumOf<BuiltinKind> T>
+    constexpr bool is_builtin(T kind) const {
+        return is_builtin(static_cast<BuiltinKind>(kind));
+    }
 
     template <CTypeDescriptorTy T>
     constexpr const T& as() const {
@@ -317,7 +328,7 @@ struct std::hash<stc::types::FunctionTD> {
 template <>
 struct std::hash<stc::types::BuiltinTD> {
     size_t operator()(const stc::types::BuiltinTD& x) const noexcept {
-        return std::hash<uint8_t>{}(x.kind);
+        return std::hash<stc::types::BuiltinKind>{}(x.kind);
     }
 };
 

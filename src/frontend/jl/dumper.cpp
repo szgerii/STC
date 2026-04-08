@@ -58,15 +58,15 @@ std::string_view JLDumper::sym(SymbolId sym_id) const {
 }
 
 std::string JLDumper::indent() const {
-    return stc::indent(indent_level, STC_DUMP_INDENT);
+    return stc::indent(indent_level, ctx.config.dump_indent, ctx.config.use_tabs);
 }
 
-void JLDumper::inc_indent(size_t level) {
-    indent_level += level;
+void JLDumper::inc_indent() {
+    indent_level += ctx.config.dump_indent;
 }
 
-void JLDumper::dec_indent(size_t level) {
-    indent_level -= level;
+void JLDumper::dec_indent() {
+    indent_level -= ctx.config.dump_indent;
 }
 
 // CLEANUP: separate core logic of pre_visits into helper
@@ -237,13 +237,21 @@ void JLDumper::visit_DeclRefExpr(DeclRefExpr& dre) {
     out << indent() << "DeclRefExpr: ";
 
     Expr* node = ctx.get_node(dre.decl);
-    if (auto* decl = dyn_cast<Decl>(node))
-        out << "resolved, '" << sym(decl->identifier) << "' (" << decl_type_str(decl) << ", "
-            << type_str(decl->type) << ")\n";
-    else if (auto* sym_lit = dyn_cast<SymbolLiteral>(node))
+    if (auto* decl = dyn_cast<Decl>(node)) {
+        out << "resolved, '" << sym(decl->identifier) << "' (" << decl_type_str(decl) << '@'
+            << std::to_string(dre.decl.id_value()) << ", " << type_str(decl->type) << ")\n";
+
+        if (isa<OpaqueFunction>(decl)) {
+            out << indent() << dump_label("opaque function");
+            inc_indent();
+            visit(dre.decl);
+            dec_indent();
+        }
+    } else if (auto* sym_lit = dyn_cast<SymbolLiteral>(node)) {
         out << "unresolved, :(" << sym(sym_lit->value) << ")\n";
-    else
+    } else {
         assert(false && "decl ref expr pointing to non-decl, non-symbol node type");
+    }
 }
 
 void JLDumper::visit_Assignment(Assignment& assign) {

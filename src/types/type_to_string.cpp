@@ -96,9 +96,8 @@ std::string TypeToStringVisitor::visit(MethodTD method_td) {
     return std::format("method ({}) -> {}", param_list, dispatch(method_td.sig->ret_type));
 }
 
-std::string TypeToStringVisitor::visit([[maybe_unused]] BuiltinTD builtin_td) {
-    // TODO
-    return "?";
+std::string TypeToStringVisitor::visit(BuiltinTD builtin_td) {
+    return type_pool.builtin_kind_to_str(builtin_td.kind);
 }
 
 } // namespace stc::types

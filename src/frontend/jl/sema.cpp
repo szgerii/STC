@@ -42,8 +42,26 @@ using namespace stc::jl;
 namespace stc::jl {
 
 void JLSema::dump(const Expr& expr) const {
+    NodeId root = NodeId::null_id();
+
+    switch (ctx.config.err_dump_verbosity) {
+        case DumpVerbosity::None:
+            return;
+
+        case DumpVerbosity::Partial:
+            root = ctx.calculate_node_id(expr);
+            break;
+
+        case DumpVerbosity::Verbose:
+            root = ctx.calculate_node_id(global_scope().body);
+            break;
+
+        default:
+            throw std::logic_error{"Unaccounted DumpVerbosity case in sema dump"};
+    }
+
     JLDumper dumper{ctx, std::cerr};
-    dumper.visit(ctx.calculate_node_id(&expr, expr.kind()));
+    dumper.visit(root);
 }
 
 TypeId JLSema::fail(std::string_view msg, const Expr& expr) {
@@ -113,6 +131,91 @@ void JLSema::finalize() {
     }
 
     pop_scope(true);
+}
+
+bool JLSema::mangle_scope(JLScope& scope) {
+    assert_scopes_notempty();
+
+    for (auto [sym_id, decl_id] : scope.symbol_table) {
+        if (&scope != &(global_scope())) {
+            auto bt = scope.bt_find_sym(sym_id);
+            if (bt == BindingType::Captured)
+                continue;
+        }
+
+        auto* decl_expr = ctx.get_node(decl_id);
+        if (decl_expr == nullptr) {
+            stc::internal_error("invalid declaration node id found in symbol table");
+            return false;
+        }
+
+        auto* decl = dyn_cast<Decl>(decl_expr);
+        if (decl == nullptr) {
+            internal_error("non-declaration node found in symbol table", *decl_expr);
+            return false;
+        }
+
+        bool rewrite = isa<VarDecl>(decl) || isa<ParamDecl>(decl) || isa<MethodDecl>(decl);
+        if (!rewrite)
+            continue;
+
+        SymbolId usym = get_usym_for(decl->identifier, ctx.sym_pool);
+        if (usym.is_null()) {
+            internal_error("couldn't generate unique symbol for declaration", *decl);
+            return false;
+        }
+
+        decl->identifier = usym;
+    }
+
+    return true;
+}
+
+void JLSema::pop_scope(bool is_global, bool skip_mangle) {
+    assert_scopes_notempty();
+
+    // is_global is mostly just for catching accidental global scope pops (for now)
+    if (is_global && scopes.size() != 1) {
+        stc::internal_error("trying to pop non-global scope, but is_global argument is set to "
+                            "true in pop_scope function");
+        return;
+    }
+
+    if (!is_global && scopes.size() == 1) {
+        stc::internal_error("trying to pop global scope, without setting is_global argument to "
+                            "true in pop_scope function");
+        return;
+    }
+
+    // uses index lookup for scopes and dmq, because visit_method_body could force scopes or
+    // dmq to grow, potentially creating dangling references/invalidated iterators
+
+    size_t scope_idx = scopes.size() - 1;
+    for (size_t i = 0; i < scopes[scope_idx].deferred_method_queue.size(); i++) {
+        NodeId m_id = scopes[scope_idx].deferred_method_queue[i];
+        auto* mdecl = ctx.get_and_dyn_cast<MethodDecl>(m_id);
+
+        if (mdecl == nullptr) {
+            Expr* expr = ctx.get_node(m_id);
+
+            if (expr == nullptr)
+                stc::internal_error("Invalid node id in deferred method body visitor queue");
+            else
+                internal_error("non-method-declaration node found in deferred method body "
+                               "visitor queue",
+                               *expr);
+
+            continue;
+        }
+
+        visit_method_body(*mdecl);
+    }
+
+    // mangle_scope already reports its own errors (and sets _success)
+    if (!skip_mangle)
+        mangle_scope(scopes[scope_idx]);
+
+    scopes.pop_back();
 }
 
 bool JLSema::check_type_against(TypeId actual_type, TypeId expected_type) const {
@@ -287,10 +390,10 @@ TypeId JLSema::visit_VarDecl(VarDecl& vdecl) {
     }
 
     // CLEANUP: add info about new and old decl type (here and elsewhere)
-    NodeId decl_id = ctx.calculate_node_id(&vdecl, vdecl.kind());
+    NodeId decl_id = ctx.calculate_node_id(vdecl);
     bool added     = st_register(vdecl.identifier, decl_id);
     if (!added) {
-        return fail(std::format("Redeclaration of symbol '{}' in the same scope (as a variable)",
+        return fail(std::format("redeclaration of symbol '{}' in the same scope (as a variable)",
                                 ctx.get_sym(vdecl.identifier)),
                     vdecl);
     }
@@ -343,12 +446,20 @@ TypeId JLSema::visit_ParamDecl(ParamDecl& pdecl) {
         result_type = infer(pdecl.default_initializer);
     }
 
-    NodeId decl_id = ctx.calculate_node_id(&pdecl, pdecl.kind());
+    NodeId decl_id = ctx.calculate_node_id(pdecl);
     bool added     = st_register(pdecl.identifier, decl_id);
     if (!added) {
-        return fail(std::format("Redeclaration of symbol '{}' in the same scope (as a parameter)",
-                                ctx.get_sym(pdecl.identifier)),
-                    pdecl);
+        NodeId prev_decl_id = find_sym_in_current_scope(pdecl.identifier);
+
+        // param-as-param redecl (duplicate param identifiers) is reported by method decl visitor
+        if (!ctx.isa<ParamDecl>(prev_decl_id)) {
+            return fail(
+                std::format("redeclaration of symbol '{}' in the same scope (as a parameter)",
+                            ctx.get_sym(pdecl.identifier)),
+                pdecl);
+        }
+
+        _success = false;
     }
 
     return result_type;
@@ -368,8 +479,7 @@ TypeId JLSema::visit_FunctionDecl(FunctionDecl& fn_decl) {
 bool JLSema::is_method_sig_redecl(const MethodDecl& method_decl, const FunctionDecl& fn_decl) {
     const auto& method_list = fn_decl.methods;
 
-    assert(std::find(method_list.begin(), method_list.end(),
-                     ctx.calculate_node_id(&method_decl, method_decl.kind())) !=
+    assert(std::find(method_list.begin(), method_list.end(), ctx.calculate_node_id(method_decl)) !=
                method_list.end() &&
            "trying to check signature redeclaration for a method which is not part of the provided "
            "function declaration's method list");
@@ -393,6 +503,11 @@ bool JLSema::is_method_sig_redecl(const MethodDecl& method_decl, const FunctionD
                            "of method declaration",
                            method_decl);
             return false;
+        }
+
+        if (pdecl->type.is_null()) {
+            assert(!_success);
+            continue;
         }
 
         assert(!pdecl->type.is_null());
@@ -467,7 +582,7 @@ TypeId JLSema::visit_MethodDecl(MethodDecl& method) {
         return fail("method declaration with non-compound expression as a body is not allowed",
                     method);
 
-    NodeId method_id = ctx.calculate_node_id(&method, method.kind());
+    NodeId method_id = ctx.calculate_node_id(method);
 
     auto expected_bt = binding_of(method.identifier);
     if (!expected_bt.has_value())
@@ -573,7 +688,7 @@ TypeId JLSema::visit_MethodDecl(MethodDecl& method) {
                     return internal_error(
                         "nullptr found in the method list of a local function table", method);
 
-                method_ids.emplace_back(ctx.calculate_node_id(m_decl, m_decl->kind()));
+                method_ids.emplace_back(ctx.calculate_node_id(*m_decl));
             }
 
             // TODO:
@@ -588,7 +703,7 @@ TypeId JLSema::visit_MethodDecl(MethodDecl& method) {
             bool added = st_register(fn_decl->identifier, fn_decl_id);
             if (!added) {
                 return fail(
-                    std::format("Redeclaration of symbol '{}' in the same scope (as a method)",
+                    std::format("redeclaration of symbol '{}' in the same scope (as a method)",
                                 ctx.get_sym(method.identifier)),
                     method);
             }
@@ -635,7 +750,8 @@ TypeId JLSema::visit_MethodDecl(MethodDecl& method) {
         // swallows symbol table registrations
         CompoundExpr empty_cmpd{method.location, std::vector<NodeId>{}};
         ScopeRAII temp_scope{*this, ScopeKind::Hard, empty_cmpd,
-                             std::span{param_decls.data(), param_decls.size() - first_init_idx}};
+                             std::span{param_decls.data(), param_decls.size() - first_init_idx},
+                             true};
 
         for (size_t i = 0; i < first_init_idx; i++)
             infer(param_decls[i]);
@@ -747,13 +863,27 @@ void JLSema::visit_method_body(MethodDecl& method) {
 
     // this registers into function scope (dummy_scope swallows symbols from param decl visitor)
     bool any_failed = false;
+    std::unordered_set<SymbolId> used_param_ids{};
+    used_param_ids.reserve(param_decls.size());
     for (ParamDecl& pdecl : param_decls) {
-        NodeId pdecl_id = ctx.calculate_node_id(&pdecl, pdecl.kind());
-        bool added      = st_register(pdecl.identifier, pdecl_id);
-        if (!added) {
-            fail(std::format("Redeclaration of symbol '{}' in the same scope (as a parameter)",
-                             ctx.get_sym(pdecl.identifier)),
+        NodeId pdecl_id = ctx.calculate_node_id(pdecl);
+
+        bool used_before = !used_param_ids.emplace(pdecl.identifier).second;
+        if (used_before) {
+            fail(std::format("more than one parameter named '{}' in definition of function '{}'",
+                             ctx.get_sym(pdecl.identifier), ctx.get_sym(method.identifier)),
                  pdecl);
+            any_failed = true;
+            continue;
+        }
+
+        bool added = st_register(pdecl.identifier, pdecl_id);
+        if (!added) {
+            assert(!_success);
+            // this should have been reported by paramdecl visitor already
+            // fail(std::format("redeclaration of symbol '{}' in the same scope (as a parameter)",
+            //                  ctx.get_sym(pdecl.identifier)),
+            //      pdecl);
             any_failed = true;
         }
     }
@@ -870,12 +1000,16 @@ TypeId JLSema::visit_CompoundExpr(CompoundExpr& cmpd) {
                                       "though it's last expression is a return statement",
                                       cmpd);
 
-            current_fn_ret = last_expr->type;
+            const auto& last_td = tpool.get_td(last_expr->type);
+            if (!last_td.is_function() && !last_td.is_method() && !last_td.is_builtin())
+                current_fn_ret = last_expr->type;
+            else
+                current_fn_ret = ctx.jl_Nothing_t();
         }
 
         result_type = current_fn_ret;
 
-        if (ret == nullptr) {
+        if (current_fn_ret != ctx.jl_Nothing_t() && ret == nullptr) {
             // if the last expression isn't a return (and we're in a method body), insert an
             // explicit return for consistency
 
@@ -1241,7 +1375,6 @@ std::optional<MethodDecl*> JLSema::find_sig_match(const FunctionDecl& fn_decl,
     return target_method;
 }
 
-// TODO: Core.Compiler.return_type
 TypeId JLSema::visit_FunctionCall(FunctionCall& fn_call) {
     bool is_valid_fn = check(fn_call.target_fn, tpool.any_func_td());
     if (!is_valid_fn)

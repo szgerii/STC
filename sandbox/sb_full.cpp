@@ -14,15 +14,15 @@ JULIA_DEFINE_FAST_TLS
 #include <iostream>
 #include <sstream>
 
-int transpile(std::string_view code, bool dump_parsed, bool dump_sema, bool dump_lowered,
-              bool write_to_file) {
+int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_parsed, bool dump_sema,
+              bool dump_lowered, bool write_to_file) {
     using namespace stc;
     using namespace stc::jl;
     using clock = std::chrono::steady_clock;
 
     auto start = clock::now();
 
-    JLParser parser{};
+    JLParser parser{std::move(config)};
     NodeId jl_ast = parser.parse_code(code);
 
     if (!parser.success()) {
@@ -155,9 +155,12 @@ int main(int argc, char* argv[]) {
     using namespace stc;
     using namespace stc::jl;
 
+    TranspilerConfig config{};
+
     bool dump_parsed  = false;
     bool dump_sema    = false;
     bool dump_lowered = false;
+    auto err_dump     = config.err_dump_verbosity;
     size_t ite_count  = 1U;
     for (int i = 2; i < argc; i++) {
         std::string arg{argv[i]};
@@ -167,6 +170,14 @@ int main(int argc, char* argv[]) {
             dump_sema = true;
         else if (arg == "--dump-lowered")
             dump_lowered = true;
+        else if (arg == "--dump-scopes")
+            config.dump_scopes = true;
+        else if (arg == "--errdump-none")
+            err_dump = DumpVerbosity::None;
+        else if (arg == "--errdump-partial")
+            err_dump = DumpVerbosity::Partial;
+        else if (arg == "--errdump-verbose")
+            err_dump = DumpVerbosity::Verbose;
         else if (arg == "--it") {
             if (i + 1 == argc) {
                 std::cerr << "--it must be followed by the number of iterations";
@@ -188,6 +199,8 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    config.err_dump_verbosity = err_dump;
+
     // ! TODO: remove
     std::ifstream file(argc > 1 ? argv[1] : "C:\\Users\\szucs\\szakdoga\\stc\\tmp.jl");
     std::stringstream code_stream;
@@ -207,7 +220,8 @@ int main(int argc, char* argv[]) {
                                  "======================\n",
                                  i + 1);
 
-        int result = transpile(code, dump_parsed, dump_sema, dump_lowered, i + 1 == ite_count);
+        int result =
+            transpile(code, config, dump_parsed, dump_sema, dump_lowered, i + 1 == ite_count);
 
         if (result != 0) {
             std::cout << "\nAn error occured during transpilation";

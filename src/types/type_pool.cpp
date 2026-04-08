@@ -144,7 +144,7 @@ bool TypePool::is_any_func(const TypeDescriptor* fn_td) const {
     return !any_func.is_null() && &get_td(any_func) == fn_td;
 }
 
-TypeId TypePool::builtin_td(uint8_t kind) {
+TypeId TypePool::builtin_td(BuiltinKind kind) {
     TypeId id = get(BuiltinTD{kind});
     assert(!id.is_null() && "built-in type not found in pool");
     return id;
@@ -185,6 +185,27 @@ TypeId TypePool::make_struct_td(SymbolId name, std::vector<StructData::FieldInfo
     struct_map[data_ptr->name] = t_id;
 
     return t_id;
+}
+
+void TypePool::register_builtin_str(BuiltinKind kind, std::string str) {
+    bool inserted = builtin_str_map.try_emplace(kind, str).second;
+
+    if (!inserted)
+        throw std::logic_error{
+            std::format("Trying to reinsert builtin type string representation for kind {}", kind)};
+}
+
+void TypePool::clear_builtin_str_map() {
+    builtin_str_map.clear();
+}
+
+std::string TypePool::builtin_kind_to_str(BuiltinKind kind) const {
+    auto it = builtin_str_map.find(kind);
+
+    if (it == builtin_str_map.end())
+        return "unknown builtin type";
+
+    return it->second;
 }
 
 } // namespace stc::types

@@ -26,23 +26,32 @@ struct JLScope {
     ScopeKind kind;
     CompoundExpr& body;
 
+private:
+    const SymbolPool& sym_pool;
+    size_t _depth;
+
+public:
     // what kind of scopes symbols point to needs to be resolved in a separate pass
     // this is because of Julia's complex scoping rules, which cannot be resolved in a strictly
     // sequential order
     // this info is then used when building the symbol table
+
     BindingTable binding_table{};
     SymbolTable symbol_table{};
+
     LocalFunctionTable local_fn_table{};
 
     // needed for deferred method body visits in sema
     std::vector<NodeId> deferred_method_queue{};
 
-    explicit JLScope(ScopeKind kind, CompoundExpr& body)
-        : kind{kind}, body{body} {}
+    explicit JLScope(ScopeKind kind, CompoundExpr& body, size_t depth, const SymbolPool& sym_pool)
+        : kind{kind}, body{body}, sym_pool{sym_pool}, _depth{depth} {}
 
     ScopeType type() const {
         return kind == ScopeKind::Global ? ScopeType::Global : ScopeType::Local;
     }
+
+    size_t depth() const { return _depth; }
 
     bool is_global() const { return kind == ScopeKind::Global; } // <==> type() == Global
     bool is_local() const { return kind != ScopeKind::Global; }  // <==> type() == Local
@@ -59,8 +68,10 @@ struct JLScope {
         auto it = binding_table.find(sym);
 
         if (it == binding_table.end())
-            throw std::logic_error{"Trying to access scope of symbol not resolved during "
-                                   "scope-level symbol resolution"};
+            throw std::logic_error{std::format(
+                "Trying to access binding type of symbol '{}', which was not resolved during "
+                "scope-level symbol resolution",
+                sym_pool.get_symbol(sym))};
 
         return it->second;
     }

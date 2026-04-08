@@ -21,6 +21,11 @@ void JLCtx::init_jl_types() {
     _jl_String_t  = type_pool.builtin_td(BuiltinTypeKind::String);
     _jl_Symbol_t  = type_pool.builtin_td(BuiltinTypeKind::Symbol);
 
+    type_pool.clear_builtin_str_map();
+    type_pool.register_builtin_str(BuiltinTypeKind::Nothing, "Nothing");
+    type_pool.register_builtin_str(BuiltinTypeKind::String, "String");
+    type_pool.register_builtin_str(BuiltinTypeKind::Symbol, "Symbol");
+
     // // clang-format off
     // #define X(type) assert(_##type != types::TypeId::null_id() && #type " not initialized by
     // init_jl_types");

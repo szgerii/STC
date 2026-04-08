@@ -212,7 +212,7 @@ NodeId JLParser::parse_code(std::string_view code) {
     jl_value_t* parsed_expr = nullptr;
     JL_GC_PUSH2(&code_jl_str, &parsed_expr);
 
-    const ScopeGuard jl_gc_pop_guard{[&]() { JL_GC_POP(); }};
+    const ScopeGuard jl_gc_pop_guard{[]() { JL_GC_POP(); }};
 
     jl_value_t* meta_mod_v = jl_get_global(jl_base_module, jl_symbol("Meta"));
     if (meta_mod_v == nullptr || !jl_is_module(meta_mod_v))

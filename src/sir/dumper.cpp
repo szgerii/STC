@@ -41,15 +41,15 @@ std::string SIRDumper::type_str(TypeId id) const {
 }
 
 std::string SIRDumper::indent() const {
-    return stc::indent(indent_level, STC_DUMP_INDENT);
+    return stc::indent(indent_level, ctx.config.dump_indent, ctx.config.use_tabs);
 }
 
-void SIRDumper::inc_indent(size_t level) {
-    indent_level += level;
+void SIRDumper::inc_indent() {
+    indent_level += ctx.config.dump_indent;
 }
 
-void SIRDumper::dec_indent(size_t level) {
-    indent_level -= level;
+void SIRDumper::dec_indent() {
+    indent_level -= ctx.config.dump_indent;
 }
 
 bool SIRDumper::pre_visit_id(NodeId node_id) {

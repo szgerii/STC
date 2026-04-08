@@ -29,6 +29,8 @@ public:
     using node_base_type = NodeBaseTy;
     using node_kind_type = NodeBaseTy::kind_type;
 
+    TranspilerConfig config{};
+
 protected:
     BumpArena<typename NodeIdTy::id_type> node_arena;
 
@@ -58,13 +60,19 @@ public:
         return NodeIdTy{node_arena.get_offset(ptr), static_cast<uint8_t>(kind)};
     }
 
+    // ! use with caution
+    NodeIdTy calculate_node_id(const node_base_type& expr) const {
+        return calculate_node_id(&expr, expr.kind());
+    }
+
 protected:
     // "partial" move ctor, moving the type and src info pools, and empty initializing node arena
     // protected to allow derived classes to use as a starting point, but publicly only accessible
     // from the factory function move_pools_from
     template <typename T, typename U>
     explicit ASTCtx(ASTCtx<T, U>&& other, NodeIdTy::id_type node_arena_kb)
-        : node_arena{node_arena_kb * 1024U},
+        : config{std::move(other.config)},
+          node_arena{node_arena_kb * 1024U},
           type_pool{std::move(other.type_pool)},
           src_info_pool{std::move(other.src_info_pool)},
           sym_pool{std::move(other.sym_pool)} {}
