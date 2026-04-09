@@ -1,4 +1,5 @@
 #include "frontend/jl/dumper.h"
+#include "frontend/jl/ast_utils.h"
 #include "frontend/jl/utils.h"
 #include "types/type_to_string.h"
 
@@ -220,6 +221,15 @@ void JLDumper::visit_SymbolLiteral(SymbolLiteral& lit) {
     out << indent() << "SymbolLiteral: :(" << sym(lit.value) << ")\n";
 }
 
+void JLDumper::visit_ModuleLookup(ModuleLookup& ml) {
+    out << indent() << "ModuleLookup:\n";
+
+    inc_indent();
+    for (NodeId member_id : ml.chain)
+        visit(member_id);
+    dec_indent();
+}
+
 void JLDumper::visit_NothingLiteral([[maybe_unused]] NothingLiteral& lit) {
     out << indent() << "nothing\n";
 }
@@ -249,8 +259,11 @@ void JLDumper::visit_DeclRefExpr(DeclRefExpr& dre) {
         }
     } else if (auto* sym_lit = dyn_cast<SymbolLiteral>(node)) {
         out << "unresolved, :(" << sym(sym_lit->value) << ")\n";
+    } else if (auto* mod_lookup = dyn_cast<ModuleLookup>(node)) {
+        out << "unresolved, " << mod_chain_to_path(mod_lookup->chain, ctx) << '\n';
     } else {
-        assert(false && "decl ref expr pointing to non-decl, non-symbol node type");
+        assert(false &&
+               "decl ref expr pointing to non-decl, non-symbol, non-module-lookup node type");
     }
 }
 

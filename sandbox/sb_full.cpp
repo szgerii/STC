@@ -26,7 +26,7 @@ int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_par
     NodeId jl_ast = parser.parse_code(code);
 
     if (!parser.success()) {
-        std::cerr << "Julia parser failed" << std::endl;
+        std::cerr << "\nJulia parser failed" << std::endl;
         return 1;
     }
 
@@ -52,7 +52,7 @@ int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_par
     auto sema_done = clock::now();
 
     if (!sema.success()) {
-        std::cerr << "Julia sema failed" << std::endl;
+        std::cerr << "\nJulia sema failed" << std::endl;
         return 1;
     }
 
@@ -67,7 +67,7 @@ int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_par
     auto sir_ast = lowering.lower(jl_ast);
 
     if (!lowering.successful()) {
-        std::cerr << "Julia -> SIR lowering failed" << std::endl;
+        std::cerr << "\nJulia -> SIR lowering failed" << std::endl;
         return 1;
     }
 
@@ -96,7 +96,7 @@ int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_par
     code_gen_vis.visit(sir_ast);
 
     if (!code_gen_vis.successful()) {
-        std::cerr << "GLSL code gen failed" << std::endl;
+        std::cerr << "\nGLSL code gen failed" << std::endl;
         return 1;
     }
 
@@ -116,7 +116,7 @@ int transpile(std::string_view code, stc::TranspilerConfig config, bool dump_par
             fwrite(res.data(), 1, res.size(), out_file);
             fclose(out_file);
         } else {
-            std::cerr << "failed to open out.comp for writing" << std::endl;
+            std::cerr << "\nFailed to open out.comp for writing" << std::endl;
             return 1;
         }
     }
@@ -215,10 +215,12 @@ int main(int argc, char* argv[]) {
     const ScopeGuard jl_guard{[&]() { jl_atexit_hook(0); }};
 
     for (size_t i = 0; i < ite_count; i++) {
-        std::cout << std::format("\n======================\n"
-                                 "Transpilation #{}\n"
-                                 "======================\n",
-                                 i + 1);
+        if (ite_count != 1) {
+            std::cout << std::format("\n======================\n"
+                                     "Transpilation #{}\n"
+                                     "======================\n",
+                                     i + 1);
+        }
 
         int result =
             transpile(code, config, dump_parsed, dump_sema, dump_lowered, i + 1 == ite_count);

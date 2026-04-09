@@ -47,6 +47,7 @@ private:
     PARSER_DECL(if);
     PARSER_DECL(while);
     PARSER_DECL(return);
+    PARSER_DECL(dot_chain);
 
     // helper parser functions, not participating in the regular parse_expr flow
     std::pair<jl_value_t*, TypeId> parse_type_annotation(jl_expr_t* annot);

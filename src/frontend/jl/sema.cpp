@@ -1,5 +1,6 @@
 #include "frontend/jl/sema.h"
 #include "base.h"
+#include "frontend/jl/ast_utils.h"
 #include "frontend/jl/dumper.h"
 #include "frontend/jl/rt/utils.h"
 #include "frontend/jl/sema.h"
@@ -71,8 +72,10 @@ TypeId JLSema::fail(std::string_view msg, const Expr& expr) {
     error(file, loc, msg);
     _success = false;
 
-    std::cerr << "The above error was emitted while processing the following node:\n";
-    dump(expr);
+    if (ctx.config.err_dump_verbosity != DumpVerbosity::None) {
+        std::cerr << "The above error was emitted while processing the following node:\n";
+        dump(expr);
+    }
 
     return TypeId::null_id();
 }
@@ -83,8 +86,10 @@ TypeId JLSema::warn(std::string_view msg, const Expr& expr) {
     auto [loc, file] = ctx.src_info_pool.get_loc_and_file(expr.location);
     warning(file, loc, msg);
 
-    std::cerr << "The above warning was emitted while processing the following node:\n";
-    dump(expr);
+    if (ctx.config.err_dump_verbosity != DumpVerbosity::None) {
+        std::cerr << "The above warning was emitted while processing the following node:\n";
+        dump(expr);
+    }
 
     return TypeId::null_id();
 }
@@ -100,8 +105,10 @@ TypeId JLSema::internal_error(std::string_view msg, const Expr& expr) {
     stc::internal_error(file, loc, msg);
     _success = false;
 
-    std::cerr << "The above error occured while processing the following node:\n";
-    dump(expr);
+    if (ctx.config.err_dump_verbosity != DumpVerbosity::None) {
+        std::cerr << "The above error occured while processing the following node:\n";
+        dump(expr);
+    }
 
     return TypeId::null_id();
 }
@@ -1049,8 +1056,13 @@ DEFINE_LIT(String)
 #undef DEFINE_LIT
 
 TypeId JLSema::visit_SymbolLiteral(SymbolLiteral& sym) {
+    return internal_error("sema pass reached a symbol literal leaf node, which should never happen",
+                          sym);
+}
+
+TypeId JLSema::visit_ModuleLookup(ModuleLookup& ml) {
     return internal_error(
-        "sema pass reached a symbol literal leaf node, which should never happen.", sym);
+        "sema pass reached a module lookup \"leaf subtree\", which should never happen", ml);
 }
 
 TypeId JLSema::visit_NothingLiteral([[maybe_unused]] NothingLiteral& lit) {
@@ -1078,8 +1090,46 @@ TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
         return fail("global refs are currently not supported", *gref);
 
     auto* sym = dyn_cast<SymbolLiteral>(inner);
-    if (sym == nullptr)
+    auto* ml  = dyn_cast<ModuleLookup>(inner);
+    if (sym == nullptr && ml == nullptr)
         return internal_error("declaration reference expression points to invalid node kind", dre);
+
+    if (ml != nullptr) {
+        if (!tpool.is_any_func(expected_type))
+            return fail("module lookups are currently only supported for function resolutions",
+                        dre);
+
+        if (ml->chain.empty())
+            return internal_error(
+                "empty module lookup as target of a declaration reference expression", *ml);
+
+        std::string mod_path = mod_chain_to_path(ml->chain, ctx, ml->chain.size() - 1);
+
+        auto mod = ctx.jl_env.module_cache.get_mod(mod_path);
+
+        if (!mod.has_value())
+            return fail(
+                std::format("invalid module lookup chain, couldn't resolve target module for '{}'",
+                            mod_path),
+                *ml);
+
+        auto* sym_lit = ctx.get_and_dyn_cast<SymbolLiteral>(ml->chain.back());
+        if (sym_lit == nullptr)
+            return internal_error("unexpected non-symbol-literal node in module lookup chain", *ml);
+
+        jl_function_t* jl_fn = mod->get().get_fn(ctx.get_sym(sym_lit->value), false);
+        if (jl_fn == nullptr)
+            return fail(std::format("no function with name '{}' was found in module '{}'",
+                                    ctx.get_sym(sym_lit->value), mod_path),
+                        *ml);
+
+        SymbolId fn_name_id = ctx.sym_pool.get_id(get_jl_fn_name(jl_fn));
+
+        dre.decl = ctx.emplace_node<OpaqueFunction>(dre.location, fn_name_id, jl_fn).first;
+        infer(dre.decl);
+
+        return tpool.func_td(fn_name_id);
+    }
 
     auto maybe_bt = binding_of(sym->value);
 
@@ -1108,7 +1158,7 @@ TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
             dre);
     }
 
-    bool is_fn_ref = *maybe_bt == BindingType::Global && expected_type == tpool.any_func_td();
+    bool is_fn_ref = *maybe_bt == BindingType::Global && tpool.is_any_func(expected_type);
     if (is_fn_ref) {
         jl_function_t* jl_fn = find_jl_function(ctx.get_sym(sym->value), ctx.jl_env);
 
@@ -1194,8 +1244,11 @@ TypeId JLSema::visit_Assignment(Assignment& assign) {
             dre->decl = decl_id;
         }
 
+        if (ctx.isa<ModuleLookup>(dre->decl))
+            return fail("assignment to module resolved name is not allowed", assign);
+
         if (ctx.isa<OpaqueFunction>(dre->decl))
-            return internal_error("assignment to Julia-side function is not allowed", assign);
+            return fail("assignment to Julia-side function is not allowed", assign);
     }
 
     TypeId target_type = infer(assign.target);

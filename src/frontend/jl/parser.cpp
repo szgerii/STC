@@ -280,6 +280,9 @@ NodeId JLParser::parse_expr(jl_expr_t* expr) {
     if (head == sym_cache.function)
         return parse_method_decl(expr, nargs);
 
+    if (head == sym_cache.dot)
+        return parse_dot_chain(expr, nargs);
+
     if (head == sym_cache.break_)
         return emplace_node<BreakStmt>(cur_loc);
 
@@ -620,6 +623,68 @@ NodeId JLParser::parse_return(jl_expr_t* expr, size_t nargs) {
         parsed_inner = parse(inner);
 
     return emplace_node<ReturnStmt>(ret_loc, parsed_inner);
+}
+
+NodeId JLParser::parse_dot_chain(jl_expr_t* expr, size_t nargs) {
+    assert(expr->head == sym_cache.dot);
+
+    if (nargs != 2)
+        return internal_error("unexpected dot expr layout (more or less than two args)");
+
+    jl_value_t* current_lhs = jl_exprarg(expr, 0);
+    jl_value_t* current_rhs = jl_exprarg(expr, 1);
+
+    auto sym_lit_from_dre = [&](NodeId parsed_node) {
+        auto* dre = ctx.get_and_dyn_cast<DeclRefExpr>(parsed_node);
+        if (dre == nullptr)
+            return internal_error("parser returned non-decl-ref-expr node for symbol/quotenode");
+
+        NodeId sym_lit = dre->decl;
+        assert(ctx.isa<SymbolLiteral>(sym_lit) && "non-sym-lit node in parsed dre");
+
+        return sym_lit;
+    };
+
+    std::vector<NodeId> lookup_chain{};
+    bool is_done = false;
+    while (!is_done) {
+        if (!jl_is_symbol(current_rhs) && !jl_is_quotenode(current_rhs))
+            return internal_error(
+                "unexpected dot expr layout (rhs is neither a Symbol or a QuoteNode)");
+
+        NodeId parsed_rhs = parse(current_rhs);
+        lookup_chain.emplace_back(sym_lit_from_dre(parsed_rhs));
+
+        if (jl_is_symbol(current_lhs) || jl_is_quotenode(current_lhs)) {
+            NodeId parsed_lhs = parse(current_lhs);
+
+            lookup_chain.emplace_back(sym_lit_from_dre(parsed_lhs));
+            is_done = true;
+            continue;
+        }
+
+        if (is_expr(current_lhs, sym_cache.dot)) {
+            jl_expr_t* lhs_expr = safe_cast<jl_expr_t>(current_lhs);
+
+            if (jl_expr_nargs(lhs_expr) != 2)
+                return internal_error("unexpected dot expr layout (more or less than two args)");
+
+            current_lhs = jl_exprarg(lhs_expr, 0);
+            current_rhs = jl_exprarg(lhs_expr, 1);
+            continue;
+        }
+
+        // e.g. fn_that_returns_a_mod().some_var
+        return error(
+            "module lookup chains (dot expressions) containg non-symbol nodes are not allowed");
+    }
+
+    // chains are a recursive structure, so the above flattening creates the reversed version of the
+    // resulting chain
+    std::reverse(lookup_chain.begin(), lookup_chain.end());
+
+    NodeId mod_lookup = emplace_node<ModuleLookup>(cur_loc, std::move(lookup_chain));
+    return emplace_node<DeclRefExpr>(cur_loc, mod_lookup);
 }
 
 NodeId JLParser::error(std::string_view msg, SrcLocationId loc_id) {

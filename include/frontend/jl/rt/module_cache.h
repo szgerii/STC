@@ -29,7 +29,7 @@ public:
     jl_module_t* mod_ptr() const { return _mod_ptr; }
 
     // returns fn ptr from cache, or retrieves from julia, adds to cache and returns
-    jl_function_t* get_fn(std::string_view fn_name);
+    jl_function_t* get_fn(std::string_view fn_name, bool throw_on_not_found = true);
 };
 
 class JuliaModuleCache {
@@ -38,21 +38,39 @@ class JuliaModuleCache {
 
     ModuleTable module_cache{};
 
+    using MaybeModRef = std::optional<std::reference_wrapper<JuliaModule>>;
+
 public:
     explicit JuliaModuleCache()
         : main_mod{register_mod("Main", jl_main_module)},
           base_mod{register_mod("Base", jl_base_module)},
           core_mod{register_mod("Core", jl_core_module)},
-          meta_mod{get_mod("Base.Meta")},
-          comp_mod{get_mod("Core.Compiler")} {}
+          meta_mod{get_mod_or_throw("Base.Meta")},
+          comp_mod{get_mod_or_throw("Core.Compiler")} {}
 
     // returns JuliaModule from cache, or retrieves it from julia, adds to cache and returns
     // mod_path format: X.Y.Z
-    [[nodiscard]] JuliaModule& get_mod(std::string_view mod_path,
-                                       jl_module_t* root_mod = jl_main_module);
+    [[nodiscard]] MaybeModRef get_mod(std::string_view mod_path,
+                                      jl_module_t* root_mod = jl_main_module);
 
-    [[nodiscard]] JuliaModule& get_mod(std::string_view mod_path, const JuliaModule& root_mod) {
+    [[nodiscard]] MaybeModRef get_mod(std::string_view mod_path, const JuliaModule& root_mod) {
         return get_mod(mod_path, root_mod.mod_ptr());
+    }
+
+    [[nodiscard]] JuliaModule& get_mod_or_throw(std::string_view mod_path,
+                                                jl_module_t* root_mod = jl_main_module) {
+        auto result = get_mod(mod_path, root_mod);
+
+        if (!result.has_value())
+            throw std::logic_error{std::format(
+                "module path doesn't point to a Module object in Julia (in {})", mod_path)};
+
+        return *result;
+    }
+
+    [[nodiscard]] JuliaModule& get_mod_or_throw(std::string_view mod_path,
+                                                const JuliaModule& root_mod) {
+        return get_mod_or_throw(mod_path, root_mod.mod_ptr());
     }
 
     // shorthands for common modules

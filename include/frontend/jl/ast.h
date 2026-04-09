@@ -362,6 +362,19 @@ struct SymbolLiteral : public Expr {
     SAME_NODE_KIND_DEF(NodeKind::SymLit)
 };
 
+// aims to store "ModA.ModB.sym"-like chains where each member is a SymbolLiteral
+struct ModuleLookup : public Expr {
+    std::vector<NodeId> chain;
+
+    explicit ModuleLookup(SrcLocationId location, std::vector<NodeId> chain)
+        : Expr{location, NodeKind::ModLookup}, chain{std::move(chain)} {
+
+        ASSERT_CONTAINS_NO_NULL(chain);
+    }
+
+    SAME_NODE_KIND_DEF(NodeKind::ModLookup)
+};
+
 struct NothingLiteral : public Expr {
     explicit NothingLiteral(SrcLocationId location)
         : Expr{location, NodeKind::NothingLit} {}

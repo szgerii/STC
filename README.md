@@ -18,18 +18,22 @@ Here is a (very) rough overview of the development timeline and its current prog
 - [x] GLSL code generation
 - [x] Symbol interning
 - [x] Julia parsing
-- [ ] Qualified types [mostly done, not yet integrated]
 - [x] Julia type inference (bidirectional typing)
+- [x] Configuration API
+- [ ] Vector, matrix and array types
+- [ ] Builtin function sema system, GLSL builtins
+- [ ] Qualified types [mostly done, not yet integrated]
 - [ ] Julia Pkg API [cpp-side mostly done]
 - [ ] Expand supported Julia and GLSL language subsets
-- [ ] Configuration API
-- [ ] Multi-file and multi-function support
-- [ ] SIR-level implicit casting support
 - [ ] Tests
-- [ ] CI/CD? (should be as simple as auto running pre-existing CMake targets on GitHub)
-- [ ] Wiki?
+- [ ] Lambda lifting (low prio) [julia sema is ~90% prepared for this]
+- [ ] Multi-file and multi-function support (low prio)
+- [ ] CI/CD (low prio) [should be as simple as auto running pre-existing CMake targets on GitHub, but it probably won't be]
+- [ ] Wiki (low prio)
 
 Note that these aren't necessarily in "chronological" order, and the points differ vastly in difficulty and time needed to implement them, with earlier points requiring much more effort and research.
+
+Points marked as `(low prio)` are functionality I don't aim to implement before the thesis submission deadline, but will be nice additions later on.
 
 # Build System
 

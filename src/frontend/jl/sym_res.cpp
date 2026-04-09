@@ -1,4 +1,5 @@
 #include "frontend/jl/sym_res.h"
+#include "frontend/jl/ast_utils.h"
 
 #include <algorithm>
 #include <ranges>
@@ -52,6 +53,9 @@ bool SymbolRes::finalize() {
             }
         } else {
             assert(!(isa<Decl>(expr)));
+
+            // reference:
+            // https://docs.julialang.org/en/v1/manual/variables-and-scoping/
 
             auto it = std::find_if(scopes.rbegin(), scopes.rend(), [sym](JLScope& scope) -> bool {
                 return scope.bt_contains(sym);
@@ -227,6 +231,8 @@ void SymbolRes::visit_SymbolLiteral(SymbolLiteral& sym_lit) {
     // so their symbol literal visitor isn't invoked
     try_register(sym_lit.value, sym_lit, ScopeInferSrc::Access);
 }
+
+EMPTY_VISITOR_DEF(ModuleLookup)
 
 EMPTY_VISITOR_DEF(NothingLiteral)
 EMPTY_VISITOR_DEF(OpaqueNode)

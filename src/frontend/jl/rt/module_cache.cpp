@@ -2,7 +2,7 @@
 
 namespace stc::jl::rt {
 
-jl_function_t* JuliaModule::get_fn(std::string_view fn_name) {
+jl_function_t* JuliaModule::get_fn(std::string_view fn_name, bool throw_on_not_found) {
     auto it = fn_cache.find(fn_name);
     if (it != fn_cache.end())
         return it->second;
@@ -10,9 +10,13 @@ jl_function_t* JuliaModule::get_fn(std::string_view fn_name) {
     std::string fn_str{fn_name};
     jl_function_t* fn = jl_get_function(_mod_ptr, fn_str.c_str());
 
-    if (fn == nullptr)
-        throw std::logic_error{
-            std::format("couldn't find function with name {} in module", fn_name)};
+    if (fn == nullptr) {
+        if (throw_on_not_found)
+            throw std::logic_error{
+                std::format("couldn't find function with name {} in module", fn_name)};
+        else
+            return nullptr;
+    }
 
     auto [fn_cache_it, inserted] = fn_cache.emplace(std::move(fn_str), fn);
     assert(inserted);
@@ -20,7 +24,8 @@ jl_function_t* JuliaModule::get_fn(std::string_view fn_name) {
     return fn_cache_it->second;
 }
 
-JuliaModule& JuliaModuleCache::get_mod(std::string_view mod_path, jl_module_t* root_mod) {
+JuliaModuleCache::MaybeModRef JuliaModuleCache::get_mod(std::string_view mod_path,
+                                                        jl_module_t* root_mod) {
     auto it = module_cache.find(mod_path);
     if (it != module_cache.end())
         return it->second;
@@ -32,12 +37,6 @@ JuliaModule& JuliaModuleCache::get_mod(std::string_view mod_path, jl_module_t* r
         jl_value_t* mod_v     = jl_get_global(current_mod, jl_symbol(mod_name.c_str()));
         jl_module_t* next_mod = try_cast<jl_module_t>(mod_v);
 
-        if (next_mod == nullptr) {
-            throw std::logic_error{
-                std::format("module path doesn't point to a Module object in Julia ({} in {})",
-                            mod_name, mod_path)};
-        }
-
         return next_mod;
     };
 
@@ -46,20 +45,25 @@ JuliaModule& JuliaModuleCache::get_mod(std::string_view mod_path, jl_module_t* r
     jl_module_t* mod_it = root_mod;
     while (dot_pos != mod_path.npos) {
         if (first_pos == dot_pos)
-            throw std::logic_error{std::format(
-                "module path begins with a dot, or contains repeated dots ({})", mod_path)};
+            return std::nullopt;
+
         assert(first_pos < dot_pos);
 
         mod_it = get_next_mod(first_pos, dot_pos - first_pos, mod_it);
+
+        if (mod_it == nullptr)
+            return std::nullopt;
 
         first_pos = dot_pos + 1;
         dot_pos   = mod_path.find('.', first_pos);
     }
 
     if (first_pos >= mod_path.length())
-        throw std::logic_error{std::format("module path ends with dot ({})", mod_path)};
+        return std::nullopt;
 
     mod_it = get_next_mod(first_pos, mod_path.length() - first_pos, mod_it);
+    if (mod_it == nullptr)
+        return std::nullopt;
 
     auto [mod_cache_it, inserted] = module_cache.emplace(std::string{mod_path}, mod_it);
     assert(inserted);

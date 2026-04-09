@@ -283,8 +283,11 @@ SIRNodeId JLLoweringVisitor::visit_StringLiteral([[maybe_unused]] StringLiteral&
 }
 
 SIRNodeId JLLoweringVisitor::visit_SymbolLiteral([[maybe_unused]] SymbolLiteral& lit) {
-    // TODO
-    throw std::logic_error{"using unimplemented feature: decl lookup"};
+    return internal_error("symbol literal in AST should have been resolved by sema");
+}
+
+SIRNodeId JLLoweringVisitor::visit_ModuleLookup([[maybe_unused]] ModuleLookup& ml) {
+    return internal_error("module lookup in AST should have been resolved by sema");
 }
 
 SIRNodeId JLLoweringVisitor::visit_NothingLiteral([[maybe_unused]] NothingLiteral& lit) {

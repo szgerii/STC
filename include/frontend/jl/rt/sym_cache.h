@@ -26,6 +26,7 @@ struct JuliaSymbolCache {
     jl_sym_t* arrow      = jl_symbol("->");    // () -> ()
     jl_sym_t* tuple      = jl_symbol("tuple");
     jl_sym_t* where      = jl_symbol("where");
+    jl_sym_t* dot        = jl_symbol(".");
     jl_sym_t* dots       = jl_symbol("...");
 
     // types
