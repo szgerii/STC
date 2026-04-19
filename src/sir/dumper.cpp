@@ -165,6 +165,12 @@ void SIRDumper::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
     dec_indent();
 }
 
+void SIRDumper::visit_SwizzleLiteral(SwizzleLiteral& swizzle_lit) {
+    out << indent() << "SwizzleLiteral: [" << swizzle_lit.comp1() << ", " << swizzle_lit.comp2()
+        << ", " << swizzle_lit.comp3() << ", " << swizzle_lit.comp4()
+        << "] (count: " << swizzle_lit.count() << ")\n";
+}
+
 void SIRDumper::visit_StructInstantiation(StructInstantiation& s_inst) {
     out << indent() << "StructInstantiation (" << type_str(s_inst.type()) << "):\n";
 

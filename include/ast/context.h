@@ -104,6 +104,7 @@ public:
         return NodeBaseTy::safe_cast_to_base(node_arena.get_ptr(id.id_value()), id);
     }
 
+    // CLEANUP: get_and_dyn_cast should be able to skip base cast when T is the concrete node type
     template <typename T>
     requires CDynCastable<T, NodeBaseTy>
     [[nodiscard]] T* get_and_dyn_cast(NodeIdTy id) const {

@@ -1,4 +1,5 @@
 #include "frontend/jl/lowering.h"
+#include "frontend/jl/ast_utils.h"
 #include "sir/ast.h"
 #include "types/type_to_string.h"
 
@@ -353,39 +354,75 @@ SIRNodeId JLLoweringVisitor::visit_IndexerExpr(IndexerExpr& idx_expr) {
     if (lowered_target.is_null())
         return SIRNodeId::null_id();
 
-    for (const auto& idx : idx_expr.indexers) {
-        if (idx.is_null())
-            return internal_error("null id in indexer list");
+    auto visit_and_wrap_minus_one = [&](NodeId idx, Expr* idx_node = nullptr) {
+        if (idx_node == nullptr)
+            idx_node = ctx.get_node(idx);
 
-        const Expr* idx_expr = ctx.get_node(idx);
-        assert(idx_expr != nullptr);
+        assert(idx_node != nullptr);
+        assert(sir_ctx.type_pool.is_type_of<IntTD>(idx_node->type));
 
-        if (idx_expr->type.is_null())
-            return internal_error("indexer has null type");
+        SIRNodeId lowered_base = visit(idx);
+        if (lowered_base.is_null())
+            return SIRNodeId::null_id();
 
-        const auto& idx_td = sir_ctx.type_pool.get_td(idx_expr->type);
+        auto lit_one = emplace_node<sir::IntLiteral>(idx_expr.location, idx_node->type, "1");
 
-        if (!idx_td.is<IntTD>())
-            return fail("non-integer indexers are not allowed");
-    }
+        auto wrapped_idx = emplace_node<sir::BinaryOp>(
+            idx_expr.location, sir::BinaryOp::OpKind::sub, lowered_base, lit_one);
+        return emplace_node<sir::IndexerExpr>(idx_expr.location, lowered_target, wrapped_idx);
+    };
 
     const auto& target_td = sir_ctx.type_pool.get_td(ctx.get_node(idx_expr.target)->type);
 
-    if (target_td.is_array() || target_td.is_vector()) {
-        if (idx_expr.indexers.size() != 1)
+    size_t idx_n = idx_expr.indexers.size();
+    bool is_arr  = target_td.is_array();
+    bool is_vec  = target_td.is_vector();
+
+    if (is_arr || is_vec) {
+        if (idx_n != 1)
             return fail("arrays and vectors only support single component indexers");
 
-        SIRNodeId base_idx = visit(idx_expr.indexers.front());
-        if (base_idx.is_null())
-            return SIRNodeId::null_id();
+        NodeId idx     = idx_expr.indexers[0];
+        Expr* idx_node = ctx.get_node(idx);
+        TypeId idx_t   = idx_node->type;
 
-        auto lit_one = emplace_node<sir::IntLiteral>(idx_expr.location,
-                                                     sir_ctx.type_pool.int_td(32, true), "1");
+        if (is_arr) {
+            if (!sir_ctx.type_pool.is_type_of<IntTD>(idx_t))
+                return fail("non-integer indexer on array is not allowed");
 
-        auto wrapped_idx = emplace_node<sir::BinaryOp>(
-            idx_expr.location, sir::BinaryOp::OpKind::sub, base_idx, lit_one);
+            return visit_and_wrap_minus_one(idx, idx_node);
+        }
 
-        return emplace_node<sir::IndexerExpr>(idx_expr.location, lowered_target, wrapped_idx);
+        if (is_vec) {
+            if (sir_ctx.type_pool.is_type_of<IntTD>(idx_t))
+                return visit_and_wrap_minus_one(idx, idx_node);
+
+            // swizzle
+            if (auto* idx_sym = dyn_cast<SymbolLiteral>(idx_node)) {
+                std::string_view swizzle = sir_ctx.get_sym(idx_sym->value);
+                size_t swizzle_n         = swizzle.length();
+
+                if (swizzle_n == 0 || swizzle_n > 4)
+                    return internal_error("invalid swizzle component count not caught by sema");
+
+                uint8_t comps[4] = {0, 0, 0, 0};
+                for (size_t i = 0; i < swizzle_n; i++) {
+                    comps[i] = parse_swizzle_component(swizzle[i]).first;
+
+                    if (comps[i] == 0xFF)
+                        return internal_error("invalid swizzle component not caught by sema");
+                }
+
+                SIRNodeId lowered_swizzle = emplace_node<sir::SwizzleLiteral>(
+                    idx_node->location, static_cast<uint8_t>(swizzle_n), comps[0], comps[1],
+                    comps[2], comps[3]);
+
+                return emplace_node<sir::IndexerExpr>(idx_expr.location, lowered_target,
+                                                      lowered_swizzle);
+            }
+
+            return fail("non-integer, non-swizzle indexer on vector is not allowed");
+        }
     }
 
     return fail(std::format("indexers on type '{}' are not allowed",

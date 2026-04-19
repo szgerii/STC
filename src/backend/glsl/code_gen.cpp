@@ -179,6 +179,24 @@ void GLSLCodeGenVisitor::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
     out << ')';
 }
 
+void GLSLCodeGenVisitor::visit_SwizzleLiteral(SwizzleLiteral& swizzle_lit) {
+    static constexpr char comp_map[4] = {'x', 'y', 'z', 'w'};
+
+    assert(0 < swizzle_lit.count() && swizzle_lit.count() <= 4 &&
+           "invalid swizzle literal not caught before codegen");
+
+    const uint8_t count = swizzle_lit.count();
+
+    if (count >= 1)
+        out << comp_map[swizzle_lit.comp1() & 0x03];
+    if (count >= 2)
+        out << comp_map[swizzle_lit.comp2() & 0x03];
+    if (count >= 3)
+        out << comp_map[swizzle_lit.comp3() & 0x03];
+    if (count >= 4)
+        out << comp_map[swizzle_lit.comp4() & 0x03];
+}
+
 void GLSLCodeGenVisitor::visit_StructInstantiation(StructInstantiation& s_inst) {
     assert(ctx.type_pool.is_type_of<StructTD>(s_inst.type()) &&
            "StructInstantiation with non-struct type in AST");
@@ -219,9 +237,18 @@ void GLSLCodeGenVisitor::visit_ExplicitCast(ExplicitCast& cast) {
 
 void GLSLCodeGenVisitor::visit_IndexerExpr(IndexerExpr& arr_mem) {
     visit(arr_mem.target_arr);
-    out << '[';
+
+    bool is_swizzle = isa<SwizzleLiteral>(ctx.get_node(arr_mem.indexer));
+
+    if (is_swizzle)
+        out << '.';
+    else
+        out << '[';
+
     visit(arr_mem.indexer);
-    out << ']';
+
+    if (!is_swizzle)
+        out << ']';
 }
 
 void GLSLCodeGenVisitor::visit_Assignment(Assignment& assign) {

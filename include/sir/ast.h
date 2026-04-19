@@ -273,6 +273,51 @@ struct ArrayLiteral : public Expr {
     SAME_NODE_KIND_DEF(NodeKind::ArrayLit)
 };
 
+// unfortunately 4 + 4^2 + 4^3 + 4^4 = 340 > 256
+// so mathematically, this cannot fit into the already reserved 8 bits (node_storage)
+// for alignment reasons, theres not much use utilizing node_storage + a uint8_t vs. having a single
+// local uint16_t
+struct SwizzleLiteral : public Expr {
+    uint16_t _count : 3; // allows invalid state with count == 0 (INVARIANT: count <= 4)
+
+    // for all i in [count+1 : 4] : compi == 0
+    uint16_t _comp1    : 2; // 0 - x, 1 - y, 2 - z, 3 - w
+    uint16_t _comp2    : 2;
+    uint16_t _comp3    : 2;
+    uint16_t _comp4    : 2;
+    uint16_t _reserved : 5;
+
+    // CLEANUP: separate swizzle type?
+    explicit SwizzleLiteral(SrcLocationId location, uint8_t count, uint8_t comp1 = 0U,
+                            uint8_t comp2 = 0U, uint8_t comp3 = 0U, uint8_t comp4 = 0U)
+        : Expr{location, NodeKind::SwizzleLit, TypeId::void_id()},
+          _count{static_cast<uint16_t>(count & 0x07)},
+          _comp1{static_cast<uint16_t>(comp1 & 0x03)},
+          _comp2{static_cast<uint16_t>(comp2 & 0x03)},
+          _comp3{static_cast<uint16_t>(comp3 & 0x03)},
+          _comp4{static_cast<uint16_t>(comp4 & 0x03)},
+          _reserved{0U} {
+
+        assert(count <= 4 && "Trying to create SwizzleLiteral with more than 4 components");
+        assert((count == 4 || comp4 == 0U) &&
+               "Trying to create SwizzleLiteral with less than 4 components, but non-zero comp4");
+        assert((count >= 3 || comp3 == 0U) &&
+               "Trying to create SwizzleLiteral with less than 3 components, but non-zero comp3");
+        assert((count >= 2 || comp2 == 0U) &&
+               "Trying to create SwizzleLiteral with less than 2 components, but non-zero comp2");
+        assert((count >= 1 || comp1 == 0U) &&
+               "Trying to create SwizzleLiteral with less than 1 components, but non-zero comp1");
+    }
+
+    uint8_t count() const { return _count; }
+    uint8_t comp1() const { return _comp1; }
+    uint8_t comp2() const { return _comp2; }
+    uint8_t comp3() const { return _comp3; }
+    uint8_t comp4() const { return _comp4; }
+
+    SAME_NODE_KIND_DEF(NodeKind::SwizzleLit)
+};
+
 struct StructInstantiation : public Expr {
     SymbolId struct_name;
     std::vector<NodeId> field_values;

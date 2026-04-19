@@ -353,7 +353,7 @@ bool JLSema::check(Expr& expr, TypeId checked_type, bool allow_pretyped) {
 
     TypeId actual_type = expr.type.is_null() ? impl_this()->visit(&expr) : expr.type;
 
-    if (_success && !actual_type.is_null() &&
+    if (_success && !actual_type.is_null() && !visiting_indexer &&
         tpool.get_td(actual_type).is_builtin(BuiltinTypeKind::String))
         fail("nodes representing strings are not allowed", expr);
 
@@ -401,7 +401,7 @@ TypeId JLSema::infer(Expr& expr, bool allow_pretyped) {
         return _success ? fail("couldn't infer type for node during type checking", expr)
                         : TypeId::null_id();
 
-    if (_success && tpool.get_td(inferred).is_builtin(BuiltinTypeKind::String))
+    if (_success && !visiting_indexer && tpool.get_td(inferred).is_builtin(BuiltinTypeKind::String))
         fail("nodes representing strings are not allowed", expr);
 
     expr.type = inferred;
@@ -1165,7 +1165,9 @@ DEFINE_LIT(Float64)
 #undef DEFINE_LIT
 
 TypeId JLSema::visit_StringLiteral(StringLiteral& str_lit) {
-    fail("string literals are not allowed", str_lit);
+    if (!visiting_indexer)
+        fail("string literals are not allowed", str_lit);
+
     return ctx.jl_String_t();
 }
 
@@ -1214,8 +1216,11 @@ TypeId JLSema::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
 }
 
 TypeId JLSema::visit_IndexerExpr(IndexerExpr& idx_expr) {
+    bool prev_vis_idx = visiting_indexer;
+    visiting_indexer  = true;
     for (auto& idx : idx_expr.indexers)
         infer(idx);
+    visiting_indexer = prev_vis_idx;
 
     infer(idx_expr.target);
     TypeId coll_type = ctx.get_node(idx_expr.target)->type;
@@ -1246,6 +1251,78 @@ TypeId JLSema::visit_IndexerExpr(IndexerExpr& idx_expr) {
     if (coll_td.is_vector()) {
         if (idx_expr.indexers.size() != 1)
             return fail("vector types only support one indexer value", idx_expr);
+
+        const Expr* idx = ctx.get_node(idx_expr.indexers[0]);
+
+        if (ctx.type_pool.is_type_of<IntTD>(idx->type))
+            return el_type;
+
+        if (idx->type != ctx.jl_String_t() && idx->type != ctx.jl_Symbol_t())
+            return fail(std::format("invalid vector indexer type '{}'",
+                                    type_to_string(idx->type, ctx, ctx)),
+                        idx_expr);
+
+        // SWIZZLE
+
+        // centralize swizzles into symbol literals
+        if (const auto* str_idx = dyn_cast<const StringLiteral>(idx)) {
+            SymbolId sym_id = ctx.sym_pool.get_id(str_idx->value);
+
+            std::tie(idx_expr.indexers[0], idx) =
+                ctx.emplace_node<SymbolLiteral>(idx->location, sym_id);
+
+            prev_vis_idx     = visiting_indexer;
+            visiting_indexer = true;
+            infer(idx_expr.indexers[0]);
+            visiting_indexer = prev_vis_idx;
+        }
+
+        if (const auto* sym_idx = dyn_cast<const SymbolLiteral>(idx)) {
+            std::string_view swizzle = ctx.get_sym(sym_idx->value);
+
+            size_t swizzle_n = swizzle.length();
+            if (swizzle_n == 0 || swizzle_n > 4)
+                return fail(std::format("invalid swizzle expression length for '{}'", swizzle),
+                            idx_expr);
+
+            uint32_t vec_n = coll_td.as<VectorTD>().component_count;
+            SwizzleSet set = SwizzleSet::Invalid;
+
+            for (size_t i = 0; i < swizzle_n; i++) {
+                auto [comp, cur_set] = parse_swizzle_component(swizzle[i]);
+
+                if (comp == 0xFF)
+                    return fail(
+                        std::format("invalid swizzle expression component '{}'", swizzle[i]),
+                        idx_expr);
+
+                if (cur_set == SwizzleSet::Invalid)
+                    return internal_error(
+                        "invalid swizzle set returned for valid swizzle component", idx_expr);
+
+                if (set == SwizzleSet::Invalid)
+                    set = cur_set;
+                else if (set != cur_set)
+                    return fail(
+                        std::format(
+                            "mixing components from different swizzle sets is not allowed ('{}')",
+                            swizzle),
+                        idx_expr);
+
+                assert(vec_n != 0);
+                if (comp > vec_n - 1)
+                    return fail(std::format("swizzle component '{}' points outside "
+                                            "vector bounds (vector component count is {})",
+                                            swizzle[i], vec_n),
+                                idx_expr);
+            }
+
+            return swizzle_n == 1
+                       ? el_type
+                       : ctx.type_pool.vector_td(el_type, static_cast<uint32_t>(swizzle_n));
+        }
+
+        return fail("swizzle expressions must be literals", idx_expr);
     }
 
     if (coll_td.is_matrix()) {
@@ -1265,6 +1342,9 @@ TypeId JLSema::visit_IndexerExpr(IndexerExpr& idx_expr) {
 }
 
 TypeId JLSema::visit_SymbolLiteral(SymbolLiteral& sym) {
+    if (visiting_indexer)
+        return ctx.jl_Symbol_t();
+
     return internal_error("sema pass reached a symbol literal leaf node, which should never happen",
                           sym);
 }

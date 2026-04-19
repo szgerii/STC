@@ -19,6 +19,7 @@ class JLSema : public JLVisitor<JLSema, JLCtx, TypeId> {
     MethodDecl* current_method = nullptr;
     bool _success              = true;
     bool visiting_method_body  = false;
+    bool visiting_indexer      = false;
     bool allow_pretyped_nodes  = false;
     bool in_interactive_ctx;
 

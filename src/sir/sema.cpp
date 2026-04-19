@@ -226,6 +226,11 @@ void SIRSemaVisitor::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
     }
 }
 
+void SIRSemaVisitor::visit_SwizzleLiteral(SwizzleLiteral& swizzle_lit) {
+    if (swizzle_lit.count() > 4)
+        return error(swizzle_lit, "invalid swizzle literal, component count is greater than 4");
+}
+
 void SIRSemaVisitor::visit_StructInstantiation(StructInstantiation& s_inst) {
     const auto& struct_td = ctx.type_pool.get_td(s_inst.type());
 
@@ -280,9 +285,9 @@ void SIRSemaVisitor::visit_ExplicitCast(ExplicitCast& expl_cast) {
     visit(expl_cast.inner);
 }
 
-void SIRSemaVisitor::visit_IndexerExpr(IndexerExpr& arr_mem) {
-    visit(arr_mem.target_arr);
-    visit(arr_mem.indexer);
+void SIRSemaVisitor::visit_IndexerExpr(IndexerExpr& idx_expr) {
+    visit(idx_expr.target_arr);
+    visit(idx_expr.indexer);
 }
 
 void SIRSemaVisitor::visit_Assignment(Assignment& assignment) {

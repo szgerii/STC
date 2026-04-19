@@ -31,4 +31,31 @@ inline std::string mod_chain_to_path(const std::vector<NodeId>& chain, const JLC
     return result;
 }
 
+enum class SwizzleSet : uint8_t { Invalid, XYZW, RGBA, STPQ };
+
+[[nodiscard]] STC_FORCE_INLINE std::pair<uint8_t, SwizzleSet> parse_swizzle_component(char c) {
+    // clang-format off
+    switch (c) {
+        case 'x': return {0b00, SwizzleSet::XYZW};
+        case 'y': return {0b01, SwizzleSet::XYZW};
+        case 'z': return {0b10, SwizzleSet::XYZW};
+        case 'w': return {0b11, SwizzleSet::XYZW};
+        
+        case 'r': return {0b00, SwizzleSet::RGBA};
+        case 'g': return {0b01, SwizzleSet::RGBA};
+        case 'b': return {0b10, SwizzleSet::RGBA};
+        case 'a': return {0b11, SwizzleSet::RGBA};
+        
+        case 's': return {0b00, SwizzleSet::STPQ};
+        case 't': return {0b01, SwizzleSet::STPQ};
+        case 'p': return {0b10, SwizzleSet::STPQ};
+        case 'q': return {0b11, SwizzleSet::STPQ};
+
+        [[unlikely]]
+        default:
+            return {0xFF, SwizzleSet::Invalid};
+    }
+    // clang-format on
+}
+
 } // namespace stc::jl
