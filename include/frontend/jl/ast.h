@@ -161,7 +161,8 @@ struct VarDecl : public Decl {
                      MaybeScopeType scope, NodeId initializer = NodeId::null_id(),
                      bool is_builtin = false)
         : Decl{location, NodeKind::VarDecl, identifier,
-               static_cast<uint8_t>(scope) | static_cast<uint8_t>(is_builtin << 7)},
+               static_cast<uint8_t>(static_cast<uint8_t>(scope) |
+                                    static_cast<uint8_t>(is_builtin << 7))},
           annot_type{annot_type},
           initializer{initializer} {}
 

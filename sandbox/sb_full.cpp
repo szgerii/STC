@@ -42,7 +42,8 @@ std::string format_duration(std::chrono::nanoseconds dur) {
 }
 
 int transpile(std::string_view code, std::string file_path, stc::TranspilerConfig config,
-              bool dump_parsed, bool dump_sema, bool dump_lowered, bool write_to_file) {
+              bool dump_parsed, bool dump_sema, bool dump_lowered, bool write_to_file,
+              std::string out_path) {
     using namespace stc;
     using namespace stc::jl;
     using clock = std::chrono::steady_clock;
@@ -131,13 +132,13 @@ int transpile(std::string_view code, std::string file_path, stc::TranspilerConfi
         // gotta do C-style file writing, cause libjulia messes with std::locale in a way that
         // breaks std::ofstream in release builds
 
-        FILE* out_file = fopen("out.comp", "w");
+        FILE* out_file = fopen(out_path.c_str(), "w");
         if (out_file) {
             const std::string& res = code_gen_vis.result();
             fwrite(res.data(), 1, res.size(), out_file);
             fclose(out_file);
         } else {
-            std::cerr << "\nFailed to open out.comp for writing" << std::endl;
+            std::cerr << "\nFailed to open '" << out_path << "' for writing" << std::endl;
             return 1;
         }
     }
@@ -170,11 +171,12 @@ int main(int argc, char* argv[]) {
 
     TranspilerConfig config{};
 
-    bool dump_parsed  = false;
-    bool dump_sema    = false;
-    bool dump_lowered = false;
-    auto err_dump     = config.err_dump_verbosity;
-    size_t ite_count  = 1U;
+    bool dump_parsed     = false;
+    bool dump_sema       = false;
+    bool dump_lowered    = false;
+    auto err_dump        = config.err_dump_verbosity;
+    size_t ite_count     = 1U;
+    std::string out_path = "out.comp";
     for (int i = 2; i < argc; i++) {
         std::string arg{argv[i]};
         if (arg == "--dump-parsed")
@@ -217,15 +219,23 @@ int main(int argc, char* argv[]) {
 
             ite_count = *maybe_ite_count;
             i++;
+        } else if (arg == "-o") {
+            if (i + 1 >= argc) {
+                std::cerr << "-o must be followed by the output file's path";
+                return 1;
+            }
+
+            out_path = argv[i + 1];
+            i++;
         } else {
-            std::cerr << std::format("unknown argument: {}", arg);
+            std::cerr << std::format("unknown argument: {}\n", arg);
             return 1;
         }
     }
 
     config.err_dump_verbosity = err_dump;
 
-// ! TODO: remove
+    // ! TODO: remove
 #ifdef _WIN32
     std::string path = argc > 1 ? argv[1] : "C:\\Users\\szucs\\szakdoga\\stc\\test.jl";
 #else
@@ -287,7 +297,7 @@ int main(int argc, char* argv[]) {
         }
 
         int result = transpile(code, tail_from_cwd(path).string(), config, dump_parsed, dump_sema,
-                               dump_lowered, i + 1 == ite_count);
+                               dump_lowered, i + 1 == ite_count, out_path);
 
         if (result != 0) {
             std::cout << "\nAn error occured during transpilation\n";

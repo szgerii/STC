@@ -207,6 +207,18 @@ bool JLSema::mangle_scope(JLScope& scope) {
             return false;
         }
 
+        if (!decl->qualifiers.is_null()) {
+            const auto& decl_quals = ctx.get_quals(decl->qualifiers);
+            auto it =
+                std::find_if(decl_quals.quals.begin(), decl_quals.quals.end(), [](QualKind kind) {
+                    return kind == QualKind::tq_in || kind == QualKind::tq_out ||
+                           kind == QualKind::tq_uniform;
+                });
+
+            if (it != decl_quals.quals.end())
+                continue;
+        }
+
         FunctionDecl* fn_decl = dyn_cast<FunctionDecl>(decl);
         VarDecl* var_decl     = dyn_cast<VarDecl>(decl);
 
