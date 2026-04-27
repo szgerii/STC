@@ -17,15 +17,16 @@ vs_install/
 .idea/
 
 # Temporary Julia test scripts
-/test.jl
 /tmp.jl
-/out.comp
+
+# Transpiler output
+/out.*
 
 # imgui
 imgui.ini
 
-# STC.jl
-STC.jl/Manifest.toml
-
 # BinaryBuilder
 products/
+
+# Samply output
+profile.json.gz

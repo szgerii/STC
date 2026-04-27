@@ -61,10 +61,11 @@ inline void print_help() {
     std::cout << '\n';
     
     std::cout << stc::colored("debugging:\n", title_col);
-    std::cout << "  " << stc::colored("--dump-parsed",  flag_col)       << "        print the parsed version of the Julia AST\n";
-    std::cout << "  " << stc::colored("--dump-sema",    flag_col)       << "          print the AST after semantic analysis\n";
-    std::cout << "  " << stc::colored("--dump-lowered", flag_col)       << "       print the lowered (SIR) representation\n";
-    std::cout << "  " << stc::colored("--dump-scopes",  flag_col)       << "        dump scope tree info during semantic analysis\n";
+    std::cout << "  " << stc::colored("--dump-parsed",     flag_col)     << "        print the parsed version of the Julia AST\n";
+    std::cout << "  " << stc::colored("--dump-sema",       flag_col)     << "          print the AST after semantic analysis\n";
+    std::cout << "  " << stc::colored("--dump-lowered",    flag_col)     << "       print the lowered (SIR) representation\n";
+    std::cout << "  " << stc::colored("--dump-scopes",     flag_col)     << "        dump scope tree info during semantic analysis\n";
+    std::cout << "  " << stc::colored("--track-bindings",  flag_col)     << "     step-by-step reasoning for symbol binding resolution\n";
     std::cout << '\n';
     
     std::cout << stc::colored("formatting:\n", title_col);

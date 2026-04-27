@@ -37,19 +37,20 @@ public:
 private:
     NodeId parse_expr(jl_expr_t* expr);
 
-    PARSER_DECL(var_decl);
-    PARSER_DECL(method_decl);
-    PARSER_DECL(assignment);
-    PARSER_DECL(block);
-    PARSER_DECL(call);
-    PARSER_DECL(if);
-    PARSER_DECL(while);
-    PARSER_DECL(return);
-    PARSER_DECL(dot_chain);
-    PARSER_DECL(vect);
-    PARSER_DECL(ref);
-    PARSER_DECL(log_op);
-    PARSER_DECL(struct);
+    NodeId parse_var_decl(jl_expr_t* expr, size_t nargs);
+    NodeId parse_method_decl(jl_expr_t* expr, size_t nargs);
+    NodeId parse_assignment(jl_expr_t* expr, size_t nargs);
+    NodeId parse_update_assignment(jl_expr_t* expr, size_t nargs);
+    NodeId parse_block(jl_expr_t* expr, size_t nargs);
+    NodeId parse_call(jl_expr_t* expr, size_t nargs);
+    NodeId parse_if(jl_expr_t* expr, size_t nargs);
+    NodeId parse_while(jl_expr_t* expr, size_t nargs);
+    NodeId parse_return(jl_expr_t* expr, size_t nargs);
+    NodeId parse_dot_chain(jl_expr_t* expr, size_t nargs);
+    NodeId parse_vect(jl_expr_t* expr, size_t nargs);
+    NodeId parse_ref(jl_expr_t* expr, size_t nargs);
+    NodeId parse_log_op(jl_expr_t* expr, size_t nargs);
+    NodeId parse_struct(jl_expr_t* expr, size_t nargs);
 
     // helper parser functions, not participating in the regular parse_expr flow
     std::pair<jl_value_t*, TypeId> parse_type_annotation(jl_expr_t* annot);
@@ -83,6 +84,22 @@ private:
     template <typename T, typename... Args>
     NodeId emplace_node(Args&&... args) {
         return ctx.emplace_node<T>(std::forward<Args>(args)...).first;
+    }
+
+    NodeId emplace_decl_ref(SrcLocationId loc, SymbolId sym) {
+        NodeId sym_lit = emplace_node<SymbolLiteral>(loc, sym);
+        if (sym_lit.is_null())
+            return NodeId::null_id();
+
+        return emplace_node<DeclRefExpr>(loc, sym_lit);
+    }
+
+    NodeId emplace_decl_ref(SrcLocationId loc, std::string_view sym) {
+        return emplace_decl_ref(loc, ctx.sym_pool.get_id(sym));
+    }
+
+    NodeId emplace_decl_ref(SrcLocationId loc, jl_sym_t* sym) {
+        return emplace_decl_ref(loc, jl_symbol_name(sym));
     }
 
     TypeId resolve_type(jl_value_t* type);

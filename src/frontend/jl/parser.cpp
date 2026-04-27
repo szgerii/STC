@@ -171,10 +171,7 @@ NodeId JLParser::parse(jl_value_t* node) {
         if (sym == sym_cache.nothing)
             return emplace_node<NothingLiteral>(cur_loc);
 
-        SymbolId sym_id = ctx.sym_pool.get_id(jl_symbol_name(sym));
-        NodeId sym_lit  = emplace_node<SymbolLiteral>(cur_loc, sym_id);
-
-        return emplace_node<DeclRefExpr>(cur_loc, sym_lit);
+        return emplace_decl_ref(cur_loc, sym);
     }
 
     // global refs are handled similarly to symbols, but with a module name symbol included
@@ -323,7 +320,7 @@ std::pair<jl_value_t*, TypeId> JLParser::parse_type_annotation(jl_expr_t* annot)
     assert(annot->head == sym_cache.dbl_col);
 
     if (jl_expr_nargs(annot) != 2) {
-        internal_error("unexpected type annotation layout (more or less than two args)");
+        internal_error("unexpected type annotation layout (expected two args)");
         return {nullptr, TypeId::null_id()};
     }
 
@@ -423,7 +420,7 @@ NodeId JLParser::parse_qualified_decl(jl_value_t* qualified_expr, ParseCallback 
 
         size_t nargs = jl_expr_nargs(expr_it);
         if (nargs < 2)
-            return internal_error("unexpected macrocall layout (less than two args)");
+            return internal_error("unexpected macrocall layout (expected at least two args)");
 
         jl_value_t* arg1_v = jl_exprarg(expr_it, 0);
         jl_value_t* arg2_v = jl_exprarg(expr_it, 1);
@@ -539,8 +536,14 @@ NodeId JLParser::parse_expr(jl_expr_t* expr) {
     if (head == sym_cache.continue_)
         return emplace_node<ContinueStmt>(cur_loc);
 
+    // leave at the end so that every other case is caught earlier naturally
+    // e.g. <=, >=, ==
+    std::string_view head_sv{jl_symbol_name(head)};
+    if (head_sv.ends_with('='))
+        return parse_update_assignment(expr, nargs);
+
     if (head == sym_cache.arrow)
-        return fail("arrow functions are not currently supported");
+        return fail("arrow functions are not supported currently");
 
     fail("unsupported Expr node in Julia source code:");
 
@@ -575,7 +578,7 @@ NodeId JLParser::parse_var_decl(jl_expr_t* expr, size_t nargs) {
 
     if (auto* assignment_expr = to_expr_if(inner, sym_cache.eq)) {
         if (jl_expr_nargs(assignment_expr) != 2)
-            return internal_error("assignment expression with more/less than two args");
+            return internal_error("unexpected assignment layout (expected two args)");
 
         inner = jl_exprarg(assignment_expr, 0);
         init  = jl_exprarg(assignment_expr, 1);
@@ -583,7 +586,7 @@ NodeId JLParser::parse_var_decl(jl_expr_t* expr, size_t nargs) {
 
     if (auto* typed_expr = to_expr_if(inner, sym_cache.dbl_col)) {
         if (jl_expr_nargs(typed_expr) != 2)
-            return internal_error("type annotation expression with more/less than two args");
+            return internal_error("unexpected type annotation layout (expected two args)");
 
         id   = jl_exprarg(typed_expr, 0);
         type = jl_exprarg(typed_expr, 1);
@@ -746,7 +749,7 @@ NodeId JLParser::parse_assignment(jl_expr_t* expr, size_t nargs) {
     assert(expr->head == sym_cache.eq);
 
     if (nargs != 2)
-        return internal_error("Assignment expression with more/less than two args");
+        return internal_error("unexpected assignment layut (expected two args)");
 
     jl_value_t* lhs = jl_exprarg(expr, 0);
 
@@ -809,12 +812,10 @@ NodeId JLParser::parse_tuple_assignment(jl_expr_t* expr) {
 
         SymbolId tmp_sym = get_tmp_sym(ctx.sym_pool);
 
-        NodeId tmp_lit_rhs = emplace_node<SymbolLiteral>(assign_loc, tmp_sym);
-        NodeId tmp_dre_rhs = emplace_node<DeclRefExpr>(assign_loc, tmp_lit_rhs);
+        NodeId tmp_dre_rhs = emplace_decl_ref(assign_loc, tmp_sym);
         NodeId rhs_to_tmp  = emplace_node<Assignment>(assign_loc, tmp_dre_rhs, rhs);
 
-        NodeId tmp_lit_lhs = emplace_node<SymbolLiteral>(assign_loc, tmp_sym);
-        NodeId tmp_dre_lhs = emplace_node<DeclRefExpr>(assign_loc, tmp_lit_lhs);
+        NodeId tmp_dre_lhs = emplace_decl_ref(assign_loc, tmp_sym);
         NodeId tmp_to_lhs  = emplace_node<Assignment>(assign_loc, lhs, tmp_dre_lhs);
 
         assignments_block[i]         = rhs_to_tmp;
@@ -822,6 +823,31 @@ NodeId JLParser::parse_tuple_assignment(jl_expr_t* expr) {
     }
 
     return emplace_node<CompoundExpr>(assign_loc, std::move(assignments_block));
+}
+
+NodeId JLParser::parse_update_assignment(jl_expr_t* expr, size_t nargs) {
+    std::string_view head_sv{jl_symbol_name(expr->head)};
+    assert(head_sv.ends_with('=') && head_sv != "=" && head_sv != "!=" && head_sv != ">=" &&
+           head_sv != "<=");
+
+    if (nargs != 2)
+        return internal_error("unexpected update assignment layout (expected two args)");
+
+    SrcLocationId assign_loc = cur_loc;
+
+    bool is_broadcast = head_sv.starts_with('.');
+    std::string_view fn_sym =
+        head_sv.substr(is_broadcast ? 1 : 0, head_sv.size() - (is_broadcast ? 2 : 1));
+
+    NodeId fn_dre        = emplace_decl_ref(assign_loc, fn_sym);
+    NodeId parsed_target = parse(jl_exprarg(expr, 0));
+    NodeId parsed_value  = parse(jl_exprarg(expr, 1));
+
+    if (fn_dre.is_null() || parsed_target.is_null() || parsed_value.is_null())
+        return NodeId::null_id();
+
+    return emplace_node<UpdateAssignment>(assign_loc, fn_dre, parsed_target, parsed_value,
+                                          is_broadcast);
 }
 
 NodeId JLParser::parse_block(jl_expr_t* expr, size_t nargs) {
@@ -875,11 +901,10 @@ NodeId JLParser::parse_call(jl_expr_t* expr, size_t nargs) {
 
         // prefix broadcast calls, strip first symbol
         if (fn_name.starts_with('.')) {
-            is_broadcast = true;
+            std::string_view target_fn{fn_name.substr(1)};
 
-            std::string_view target_fn = fn_name.substr(1);
-            NodeId sym_lit   = emplace_node<SymbolLiteral>(cur_loc, ctx.sym_pool.get_id(target_fn));
-            parsed_target_fn = emplace_node<DeclRefExpr>(cur_loc, sym_lit);
+            is_broadcast     = true;
+            parsed_target_fn = emplace_decl_ref(cur_loc, target_fn);
         } else {
             parsed_target_fn = parse(target_fn_v);
         }
@@ -961,7 +986,7 @@ NodeId JLParser::parse_return(jl_expr_t* expr, size_t nargs) {
     assert(expr->head == sym_cache.return_);
 
     if (nargs != 1)
-        return internal_error("unexpected return expr layout (more or less than one arg)");
+        return internal_error("unexpected return expr layout (expected one arg)");
 
     SrcLocationId ret_loc = cur_loc;
     jl_value_t* inner     = jl_exprarg(expr, 0);
@@ -981,7 +1006,7 @@ NodeId JLParser::parse_dot_chain(jl_expr_t* expr, size_t nargs) {
     assert(expr->head == sym_cache.dot);
 
     if (nargs != 2)
-        return internal_error("unexpected dot expr layout (more or less than two args)");
+        return internal_error("unexpected dot expr layout (expected two args)");
 
     // check if expr is a broadcast call first (and redirect if necessary)
     if (is_expr(jl_exprarg(expr, 1), sym_cache.tuple))
@@ -1008,7 +1033,7 @@ NodeId JLParser::parse_dot_chain(jl_expr_t* expr, size_t nargs) {
         assert(lhs_expr->head == sym_cache.dot);
 
         if (jl_expr_nargs(lhs_expr) != 2)
-            return internal_error("unexpected dot expr layout (more or less than two args)");
+            return internal_error("unexpected dot expr layout (expected two args)");
 
         current_lhs = jl_exprarg(lhs_expr, 0);
         current_rhs = jl_exprarg(lhs_expr, 1);
@@ -1041,7 +1066,7 @@ NodeId JLParser::parse_ref(jl_expr_t* expr, size_t nargs) {
     SrcLocationId base_loc = cur_loc;
 
     if (nargs < 2)
-        return internal_error("unexpected ref expression layout (less than two args)");
+        return internal_error("unexpected ref expression layout (expected at least two args)");
 
     NodeId target = parse(jl_exprarg(expr, 0));
     if (target.is_null())
@@ -1094,7 +1119,7 @@ NodeId JLParser::parse_struct(jl_expr_t* expr, size_t nargs) {
     assert(expr->head == sym_cache.struct_);
 
     if (nargs != 3)
-        return internal_error("unexpected struct definition layout (more or less than three args)");
+        return internal_error("unexpected struct definition layout (expected three args)");
 
     SrcLocationId struct_loc = cur_loc;
 
@@ -1187,7 +1212,7 @@ NodeId JLParser::parse_log_op(jl_expr_t* expr, size_t nargs) {
     assert(expr->head == sym_cache.dbl_amper || expr->head == sym_cache.dbl_pipe);
 
     if (nargs != 2)
-        return internal_error("unexpected logical operator layout (more or less than two args)");
+        return internal_error("unexpected logical operator layout (expected two args)");
 
     SrcLocationId base_loc = cur_loc;
 

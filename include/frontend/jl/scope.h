@@ -1,11 +1,27 @@
 #pragma once
 
 #include "frontend/jl/ast.h"
+#include "frontend/jl/ast_utils.h"
 #include "frontend/jl/context.h"
 
 namespace stc::jl {
 
 enum class BindingType : uint8_t { Global, Local, Captured };
+
+inline ScopeType bt_to_st(BindingType bt) {
+    if (bt == BindingType::Captured)
+        throw std::logic_error{"Trying to convert BindingType with value Captured to a ScopeType"};
+
+    assert((bt == BindingType::Global || bt == BindingType::Local) && "unaccounted binding type");
+    return bt == BindingType::Global ? ScopeType::Global : ScopeType::Local;
+}
+
+inline std::string_view bt_str(BindingType bt) {
+    if (bt == BindingType::Captured)
+        return "captured";
+
+    return scope_str(bt_to_st(bt));
+}
 
 // SymbolId of identifier -> NodeId of corresponding decl
 using SymbolTable = std::unordered_map<SymbolId, NodeId>;

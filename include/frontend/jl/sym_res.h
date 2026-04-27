@@ -2,6 +2,8 @@
 
 #include "frontend/jl/scope.h"
 #include "frontend/jl/visitor.h"
+
+#include <deque>
 #include <functional>
 
 namespace stc::jl {
@@ -12,14 +14,14 @@ class SymbolRes : public JLVisitor<SymbolRes, JLCtx, void> {
     using ScopeInferTableEntry = std::pair<std::reference_wrapper<Expr>, ScopeInferSrc>;
     using ScopeInferTable      = std::unordered_map<SymbolId, ScopeInferTableEntry>;
 
-    std::vector<JLScope>& scopes;
+    std::deque<JLScope>& scopes;
     ScopeInferTable scope_infer_table{};
     bool in_interactive_ctx;
     bool in_fn_call_target = false;
     bool _success          = true;
 
 public:
-    explicit SymbolRes(JLCtx& ctx, std::vector<JLScope>& scopes, bool in_interactive_ctx = false)
+    explicit SymbolRes(JLCtx& ctx, std::deque<JLScope>& scopes, bool in_interactive_ctx = false)
         : JLVisitor{ctx}, scopes{scopes}, in_interactive_ctx{in_interactive_ctx} {
 
         if (scopes.empty())

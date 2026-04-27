@@ -537,6 +537,23 @@ struct Assignment : public Expr {
     SAME_NODE_KIND_DEF(NodeKind::Assignment)
 };
 
+struct UpdateAssignment : public Expr {
+    NodeId update_fn;
+    NodeId target, value;
+
+    explicit UpdateAssignment(SrcLocationId location, NodeId update_fn, NodeId target, NodeId value,
+                              bool is_broadcast)
+        : Expr{location, NodeKind::UpdateAssignment, static_cast<uint8_t>(is_broadcast)},
+          update_fn{update_fn},
+          target{target},
+          value{value} {}
+
+    bool is_broadcast() const { return static_cast<bool>(node_storage()); }
+    void set_is_broadcast(bool new_value) { _node_storage = static_cast<uint8_t>(new_value); }
+
+    SAME_NODE_KIND_DEF(NodeKind::UpdateAssignment)
+};
+
 struct IndexerExpr : public Expr {
     NodeId target;
     std::vector<NodeId> indexers;

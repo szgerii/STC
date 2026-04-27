@@ -80,6 +80,8 @@ int run(int argc, char* argv[]) {
             config.forward_fns = true;
         else if (arg == "--conv-fail-reason")
             config.print_conv_fail_reason = true;
+        else if (arg == "--track-bindings")
+            config.track_bindings = true;
         else if (arg == "--no-coerce-i32")
             config.coerce_to_i32 = false;
         else if (arg == "--no-coerce-f32")

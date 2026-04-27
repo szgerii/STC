@@ -79,13 +79,17 @@ SIRNodeId JLLoweringVisitor::lower(NodeId global_cmpd_id) {
         auto ptrdiff_i = static_cast<ptrdiff_t>(i);
 
         if (ctx.isa<MethodDecl>(expr)) {
-            body.erase(body.begin() + ptrdiff_i);
+            if (sir_ctx.get_sym(ctx.get_and_dyn_cast<MethodDecl>(expr)->identifier) == "main") {
+                if (i + 1 != body.size())
+                    return fail("if an explicit main function is provided, it has to be the last "
+                                "node in the top-level compound expression");
 
-            if (sir_ctx.get_sym(ctx.get_and_dyn_cast<MethodDecl>(expr)->identifier) != "main")
-                prepended_exprs.emplace_back(expr);
-            else
                 explicit_main = expr;
+            } else {
+                prepended_exprs.emplace_back(expr);
+            }
 
+            body.erase(body.begin() + ptrdiff_i);
             continue;
         }
 
@@ -532,6 +536,41 @@ SIRNodeId JLLoweringVisitor::visit_Assignment(Assignment& assign) {
                                          visit_and_check(assign.value));
 }
 
+SIRNodeId JLLoweringVisitor::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    using BinOpKind = sir::BinaryOp::OpKind;
+
+    auto* fn_dre = ctx.get_and_dyn_cast<DeclRefExpr>(up_assign.update_fn);
+    auto* fn_decl =
+        fn_dre != nullptr ? ctx.get_and_dyn_cast<OpaqueFunction>(fn_dre->decl) : nullptr;
+
+    if (fn_decl == nullptr)
+        return internal_error("update assignment's operator resolved to a non-opaque function");
+
+    SymbolId op_sym = fn_decl->fn_name();
+
+    BinOpKind op{};
+    // clang-format off
+    if      (op_sym == sym_plus)       op = BinOpKind::add;
+    else if (op_sym == sym_minus)      op = BinOpKind::sub;
+    else if (op_sym == sym_asterisk)   op = BinOpKind::mul;
+    else if (op_sym == sym_slash)      op = BinOpKind::div;
+    else if (op_sym == sym_perc)       op = BinOpKind::mod;
+    else if (op_sym == sym_dbl_langle) op = BinOpKind::lshift;
+    else if (op_sym == sym_dbl_rangle) op = BinOpKind::rshift;
+    else if (op_sym == sym_amper)      op = BinOpKind::band;
+    else if (op_sym == sym_pipe)       op = BinOpKind::bor;
+    else if (op_sym == sym_xor)        op = BinOpKind::bxor;
+    // clang-format on
+    else
+        return fail(fmt::format("update assignment's underlying operator cannot be lowered ({})",
+                                sir_ctx.get_sym(op_sym)));
+
+    SIRNodeId lo_target = visit_and_check(up_assign.target);
+    SIRNodeId lo_value  = visit_and_check(up_assign.value);
+
+    return emplace_node<sir::UpdateAssignment>(up_assign.location, op, lo_target, lo_value);
+}
+
 SIRNodeId JLLoweringVisitor::visit_FunctionCall(FunctionCall& fn_call) {
     using BinOpKind = sir::BinaryOp::OpKind;
     using UnOpKind  = sir::UnaryOp::OpKind;
@@ -593,13 +632,8 @@ SIRNodeId JLLoweringVisitor::visit_FunctionCall(FunctionCall& fn_call) {
     if (fn_identifier.is_null())
         return internal_error("couldn't determine identifier for the target of a function call");
 
-    auto make_unop = [this, &fn_call](UnOpKind kind) -> SIRNodeId {
+    auto make_unop = [this, &fn_call](UnOpKind kind) {
         return emplace_node<sir::UnaryOp>(fn_call.location, kind, visit_and_check(fn_call.args[0]));
-    };
-
-    auto make_binop = [this, &fn_call](BinOpKind kind) -> SIRNodeId {
-        return emplace_node<sir::BinaryOp>(fn_call.location, kind, visit_and_check(fn_call.args[0]),
-                                           visit_and_check(fn_call.args[1]));
     };
 
     if (!is_ctor && fn_call.args.size() == 1) {
@@ -611,44 +645,25 @@ SIRNodeId JLLoweringVisitor::visit_FunctionCall(FunctionCall& fn_call) {
             return make_unop(UnOpKind::lneg);
         if (fn_identifier == sym_tilde)
             return make_unop(UnOpKind::bneg);
-    } else if (!is_ctor && fn_call.args.size() == 2) {
-        if (fn_identifier == sym_plus)
-            return make_binop(BinOpKind::add);
-        if (fn_identifier == sym_minus)
-            return make_binop(BinOpKind::sub);
-        if (fn_identifier == sym_asterisk)
-            return make_binop(BinOpKind::mul);
-        if (fn_identifier == sym_div || fn_identifier == sym_slash)
-            return make_binop(BinOpKind::div);
-        if (fn_identifier == sym_caret)
-            return make_binop(BinOpKind::pow);
-        if (fn_identifier == sym_perc || fn_identifier == sym_rem)
-            return make_binop(BinOpKind::mod);
+    } else if (!is_ctor && fn_call.args.size() >= 2) {
+        auto maybe_op = sym_to_bin_op(fn_identifier, fn_call.type == sir_ctx.type_pool.bool_td());
 
-        if (fn_identifier == sym_dbl_eq)
-            return make_binop(BinOpKind::eq);
-        if (fn_identifier == sym_neq)
-            return make_binop(BinOpKind::neq);
-        if (fn_identifier == sym_lt)
-            return make_binop(BinOpKind::lt);
-        if (fn_identifier == sym_leq)
-            return make_binop(BinOpKind::leq);
-        if (fn_identifier == sym_gt)
-            return make_binop(BinOpKind::gt);
-        if (fn_identifier == sym_geq)
-            return make_binop(BinOpKind::geq);
+        // unwraps >= 2 arguments in a left associative manner
+        // in glsl, all binary operations are left to right assoc, so this is fine for now
+        if (maybe_op.has_value()) {
+            BinOpKind op = *maybe_op;
 
-        if (fn_identifier == sym_amper)
-            return make_binop(BinOpKind::band);
-        if (fn_identifier == sym_pipe)
-            return make_binop(BinOpKind::bor);
+            size_t args_n     = fn_call.args.size();
+            SIRNodeId lhs_ite = visit_and_check(fn_call.args[0]);
 
-        if (fn_identifier == sym_xor) {
-            if (fn_call.type == sir_ctx.type_pool.bool_td())
-                return make_binop(BinOpKind::lxor);
+            for (size_t i = 1; i < args_n; i++) {
+                SIRNodeId rhs = visit_and_check(fn_call.args[i]);
 
-            assert(sir_ctx.type_pool.get_td(fn_call.type).is<IntTD>());
-            return make_binop(BinOpKind::bxor);
+                lhs_ite =
+                    sir_ctx.emplace_node<sir::BinaryOp>(fn_call.location, op, lhs_ite, rhs).first;
+            }
+
+            return lhs_ite;
         }
     }
 
@@ -711,6 +726,51 @@ SIRNodeId JLLoweringVisitor::visit_ContinueStmt(ContinueStmt& cont_stmt) {
 
 SIRNodeId JLLoweringVisitor::visit_BreakStmt(BreakStmt& break_stmt) {
     return emplace_node<sir::BreakStmt>(break_stmt.location);
+}
+
+std::optional<sir::BinaryOp::OpKind> JLLoweringVisitor::sym_to_bin_op(SymbolId sym,
+                                                                      bool in_logical_ctx) const {
+    using BinOpKind = sir::BinaryOp::OpKind;
+
+    if (sym == sym_plus)
+        return BinOpKind::add;
+    if (sym == sym_minus)
+        return BinOpKind::sub;
+    if (sym == sym_asterisk)
+        return BinOpKind::mul;
+    if (sym == sym_div || sym == sym_slash)
+        return BinOpKind::div;
+    if (sym == sym_caret)
+        return BinOpKind::pow;
+    if (sym == sym_perc || sym == sym_rem)
+        return BinOpKind::mod;
+
+    if (sym == sym_dbl_eq)
+        return BinOpKind::eq;
+    if (sym == sym_neq)
+        return BinOpKind::neq;
+    if (sym == sym_lt)
+        return BinOpKind::lt;
+    if (sym == sym_leq)
+        return BinOpKind::leq;
+    if (sym == sym_gt)
+        return BinOpKind::gt;
+    if (sym == sym_geq)
+        return BinOpKind::geq;
+
+    if (sym == sym_amper)
+        return BinOpKind::band;
+    if (sym == sym_pipe)
+        return BinOpKind::bor;
+
+    if (sym == sym_xor) {
+        if (in_logical_ctx)
+            return BinOpKind::lxor;
+
+        return BinOpKind::bxor;
+    }
+
+    return std::nullopt;
 }
 
 } // namespace stc::jl

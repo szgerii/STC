@@ -268,11 +268,19 @@ add_library(CommonConfig INTERFACE)
 if (MSVC)
     # apparently MSVC preprocessor is not standard-confirming by default
     # /Zc:preprocessor needed for X-macro system (__VA_ARGS__ expansion)
-    target_compile_options(CommonConfig INTERFACE /W4 /Zc:preprocessor /GR-)
+    target_compile_options(CommonConfig INTERFACE
+        /W4 /Zc:preprocessor /GR-
+        $<$<CONFIG:RelWithDebInfo>:/Zi /Oy->
+    )
+
+    target_link_options(CommonConfig INTERFACE 
+        $<$<CONFIG:RelWithDebInfo>:/DEBUG>
+    )
 else()
     target_compile_options(CommonConfig INTERFACE
         -Wall -Wextra -Wpedantic -Wconversion -Wreorder
         -fno-rtti
+        $<$<CONFIG:RelWithDebInfo>:-g -fno-omit-frame-pointer>
         # $<$<NOT:$<CONFIG:Debug>>:-fvisibility=hidden>
     )
 

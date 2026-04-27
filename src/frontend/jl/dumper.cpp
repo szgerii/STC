@@ -8,19 +8,7 @@ namespace {
 using namespace stc;
 using namespace stc::jl;
 
-std::string scope_str(ScopeType scope) {
-    switch (scope) {
-        case ScopeType::Global:
-            return "global";
-
-        case ScopeType::Local:
-            return "local";
-    }
-
-    throw std::logic_error{"Unaccounted ScopeType in switch"};
-}
-
-std::string scope_str(MaybeScopeType mst) {
+std::string_view mst_str(MaybeScopeType mst) {
     if (mst == MaybeScopeType::Unspec)
         return "unspecified";
 
@@ -70,6 +58,21 @@ void JLDumper::dec_indent() {
     indent_level -= ctx.config.dump_indent;
 }
 
+void JLDumper::dump_with_label(std::string_view label, NodeId node) {
+    out << indent() << dump_label(label);
+    inc_indent();
+    visit(node);
+    dec_indent();
+}
+
+void JLDumper::dump_with_label(std::string_view label, const std::vector<NodeId>& nodes) {
+    out << indent() << dump_label(label);
+    inc_indent();
+    for (NodeId node : nodes)
+        visit(node);
+    dec_indent();
+}
+
 // CLEANUP: separate core logic of pre_visits into helper
 
 bool JLDumper::pre_visit_id(NodeId node_id) {
@@ -101,7 +104,7 @@ bool JLDumper::pre_visit_ptr(Expr* expr) {
 }
 
 void JLDumper::visit_VarDecl(VarDecl& var) {
-    out << indent() << "VarDecl (" << scope_str(var.scope()) << "): " << sym(var.identifier) << " ("
+    out << indent() << "VarDecl (" << mst_str(var.scope()) << "): " << sym(var.identifier) << " ("
         << (!var.annot_type.is_null() ? type_str(var.annot_type) : "unannotated") << ")\n";
 
     if (!var.initializer.is_null()) {
@@ -116,38 +119,22 @@ void JLDumper::visit_MethodDecl(MethodDecl& mdecl) {
     out << indent() << "MethodDecl: " << sym(mdecl.identifier) << " -> " << type_str(mdecl.ret_type)
         << '\n';
 
-    out << indent() << dump_label("args");
-    inc_indent();
-    for (NodeId param : mdecl.param_decls)
-        visit(param);
-    dec_indent();
-
-    out << indent() << dump_label("body");
-    inc_indent();
-    visit(mdecl.body);
-    dec_indent();
+    dump_with_label("args", mdecl.param_decls);
+    dump_with_label("body", mdecl.body);
 }
 
 void JLDumper::visit_FunctionDecl(FunctionDecl& fn) {
     out << indent() << "FunctionDecl: " << sym(fn.identifier) << '\n';
 
-    out << indent() << dump_label("methods");
-    inc_indent();
-    for (NodeId method : fn.methods)
-        visit(method);
-    dec_indent();
+    dump_with_label("methods", fn.methods);
 }
 
 void JLDumper::visit_ParamDecl(ParamDecl& param) {
     out << indent() << "ParamDecl: " << sym(param.identifier) << " (" << type_str(param.annot_type)
         << ")\n";
 
-    if (!param.default_initializer.is_null()) {
-        out << indent() << dump_label("default initializer");
-        inc_indent();
-        visit(param.default_initializer);
-        dec_indent();
-    }
+    if (!param.default_initializer.is_null())
+        dump_with_label("default_initializer", param.default_initializer);
 }
 
 void JLDumper::visit_OpaqueFunction(OpaqueFunction& fn) {
@@ -163,11 +150,7 @@ void JLDumper::visit_StructDecl(StructDecl& struct_) {
     out << indent() << "StructDecl (" << sym(struct_.identifier) << ", "
         << (struct_.is_mutable() ? "mutable" : "immutable") << "):\n";
 
-    out << indent() << dump_label("fields");
-    inc_indent();
-    for (NodeId field : struct_.field_decls)
-        visit(field);
-    dec_indent();
+    dump_with_label("fields", struct_.field_decls);
 }
 
 void JLDumper::visit_FieldDecl(FieldDecl& field) {
@@ -178,10 +161,7 @@ void JLDumper::visit_FieldDecl(FieldDecl& field) {
 void JLDumper::visit_CompoundExpr(CompoundExpr& cmpd) {
     out << indent() << "CompoundExpr:\n";
 
-    inc_indent();
-    for (NodeId expr : cmpd.body)
-        visit(expr);
-    dec_indent();
+    dump_with_label("body", cmpd.body);
 }
 
 void JLDumper::visit_BoolLiteral(BoolLiteral& bool_lit) {
@@ -229,10 +209,7 @@ void JLDumper::visit_ArrayLiteral(ArrayLiteral& arr_lit) {
 void JLDumper::visit_IndexerExpr(IndexerExpr& idx_expr) {
     out << indent() << "IndexerExpr:\n";
 
-    out << indent() << dump_label("target");
-    inc_indent();
-    visit(idx_expr.target);
-    dec_indent();
+    dump_with_label("target", idx_expr.target);
 
     out << indent() << dump_label("indexers");
     inc_indent();
@@ -259,25 +236,14 @@ void JLDumper::visit_SymbolLiteral(SymbolLiteral& lit) {
 void JLDumper::visit_FieldAccess(FieldAccess& acc) {
     out << indent() << "FieldAccess:\n";
 
-    out << indent() << dump_label("target");
-    inc_indent();
-    visit(acc.target);
-    dec_indent();
-
-    out << indent() << dump_label("field");
-    inc_indent();
-    visit(acc.field_decl);
-    dec_indent();
+    dump_with_label("target", acc.target);
+    dump_with_label("field", acc.field_decl);
 }
 
 void JLDumper::visit_DotChain(DotChain& dc) {
     out << indent() << "DotChain:\n";
 
-    out << indent() << dump_label("chain");
-    inc_indent();
-    for (NodeId member_id : dc.chain)
-        visit(member_id);
-    dec_indent();
+    dump_with_label("chain", dc.chain);
 
     out << indent() << dump_label("resolved");
     inc_indent();
@@ -357,67 +323,44 @@ void JLDumper::visit_Assignment(Assignment& assign) {
     dec_indent();
 }
 
+void JLDumper::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    out << indent()
+        << fmt::format("UpdateAssignment (broadcast: {}):\n",
+                       up_assign.is_broadcast() ? "yes" : "no");
+
+    dump_with_label("update_fn", up_assign.update_fn);
+    dump_with_label("target", up_assign.target);
+    dump_with_label("value", up_assign.value);
+}
+
 void JLDumper::visit_FunctionCall(FunctionCall& fn_call) {
     out << indent()
         << fmt::format("FunctionCall (broadcast: {}):\n", fn_call.is_broadcast() ? "yes" : "no");
 
-    out << indent() << dump_label("target_fn");
-    inc_indent();
-    visit(fn_call.target_fn);
-    dec_indent();
-
-    out << indent() << dump_label("args");
-    inc_indent();
-    for (NodeId arg : fn_call.args)
-        visit(arg);
-    dec_indent();
+    dump_with_label("target_fn", fn_call.target_fn);
+    dump_with_label("args", fn_call.args);
 }
 
 void JLDumper::visit_LogicalBinOp(LogicalBinOp& lbo) {
     out << indent() << "LogicalBinOp (" << (lbo.is_land() ? "&&" : "||") << "):\n";
 
-    out << indent() << dump_label("lhs");
-    inc_indent();
-    visit(lbo.lhs);
-    dec_indent();
-
-    out << indent() << dump_label("rhs");
-    inc_indent();
-    visit(lbo.rhs);
-    dec_indent();
+    dump_with_label("lhs", lbo.lhs);
+    dump_with_label("rhs", lbo.rhs);
 }
 
 void JLDumper::visit_IfExpr(IfExpr& if_) {
     out << indent() << "IfExpr:\n";
 
-    out << indent() << dump_label("condition");
-    inc_indent();
-    visit(if_.condition);
-    dec_indent();
-
-    out << indent() << dump_label("true branch");
-    inc_indent();
-    visit(if_.true_branch);
-    dec_indent();
-
-    out << indent() << dump_label("false branch");
-    inc_indent();
-    visit(if_.false_branch);
-    dec_indent();
+    dump_with_label("condition", if_.condition);
+    dump_with_label("true_branch", if_.true_branch);
+    dump_with_label("false_branch", if_.false_branch);
 }
 
 void JLDumper::visit_WhileExpr(WhileExpr& while_) {
     out << indent() << "WhileExpr:\n";
 
-    out << indent() << dump_label("condition");
-    inc_indent();
-    visit(while_.condition);
-    dec_indent();
-
-    out << indent() << dump_label("body");
-    inc_indent();
-    visit(while_.body);
-    dec_indent();
+    dump_with_label("condition", while_.condition);
+    dump_with_label("body", while_.body);
 }
 
 void JLDumper::visit_ReturnStmt(ReturnStmt& return_stmt) {

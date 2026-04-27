@@ -20,79 +20,127 @@ bool SymbolRes::finalize() {
 
     JLScope& scope = scopes.back();
 
-    bool in_hard_ctx = false;
-    for (const auto& it : std::views::reverse(scopes)) {
-        if (it.is_hard()) {
-            in_hard_ctx = true;
-            break;
-        }
+    if (ctx.config.track_bindings) {
+        std::cout << fmt::format("\nresolving symbol bindings for {} scope at depth #{}...\n",
+                                 scope_kind_str(scope.kind), scope.depth());
     }
 
     for (auto [sym, inferred] : scope_infer_table) {
         assert((!scope.bt_contains(sym) || isa<ParamDecl>(&inferred.first.get())) &&
                "non-empty scope provided to symbol resolution pass");
 
+        if (ctx.config.track_bindings)
+            std::cout << fmt::format("deciding binding of '{}'\n", ctx.get_sym(sym));
+
+#define STC_LOG_REASON(msg)                                                                        \
+    if (ctx.config.track_bindings) {                                                               \
+        std::cout << indent(1, ctx.config) << (msg) << '\n';                                       \
+    }
+
         auto [expr_ref, infer_src] = inferred;
         Expr* expr                 = &expr_ref.get();
 
-        // CLEANUP: flatten out these if-s a bit
-
         BindingType inferred_binding = BindingType::Global;
         if (infer_src == ScopeInferSrc::Decl) {
-            assert((isa<VarDecl, MethodDecl, ParamDecl>(expr)));
+            STC_LOG_REASON("is declaration bound")
 
             if (auto* vdecl = dyn_cast<VarDecl>(expr)) {
                 assert(vdecl->scope() != MaybeScopeType::Unspec);
+                STC_LOG_REASON("is a variable declaration")
 
                 inferred_binding = mst_to_st(vdecl->scope()) == ScopeType::Global
                                        ? BindingType::Global
                                        : BindingType::Local;
+
+                STC_LOG_REASON(fmt::format("has explicit scope annotation '{}'",
+                                           scope_str(mst_to_st(vdecl->scope()))))
             } else {
                 assert((isa<MethodDecl, ParamDecl>(expr)));
+
+                STC_LOG_REASON("is a method or parameter declaration")
                 inferred_binding = BindingType::Local;
             }
         } else {
-            assert(!(isa<Decl>(expr)));
+            assert(!isa<Decl>(expr));
+
+            bool in_soft_ctx = std::none_of(scopes.begin(), scopes.end(),
+                                            [](const JLScope& scope) { return scope.is_hard(); });
 
             // reference:
             // https://docs.julialang.org/en/v1/manual/variables-and-scoping/
 
-            auto it = std::find_if(scopes.rbegin(), scopes.rend(), [sym](JLScope& scope) -> bool {
-                return scope.bt_contains(sym);
-            });
+            auto is_owning_scope = [sym](const JLScope& scope) {
+                if (!scope.bt_contains(sym))
+                    return false;
 
-            bool found    = it != scopes.rend();
-            bool in_outer = found && (&(*it) != &scope);
+                BindingType bt = scope.bt_find_sym(sym);
+                return bt == BindingType::Local || (bt == BindingType::Global && scope.is_global());
+            };
+
+            auto it = std::find_if(scopes.rbegin() + 1, scopes.rend(), is_owning_scope);
+
+            bool found = it != scopes.rend();
 
             if (infer_src == ScopeInferSrc::Assign) {
+                STC_LOG_REASON("is assignment bound")
+
                 if (found && it->is_local()) {
-                    inferred_binding = in_outer ? BindingType::Captured : BindingType::Local;
-                } else if (in_hard_ctx) {
+                    STC_LOG_REASON("has owning parent scope with local binding for symbol")
+                    inferred_binding = BindingType::Captured;
+                } else if (!in_soft_ctx) {
+                    STC_LOG_REASON("is not in global scope rooted soft scope chain")
                     inferred_binding = BindingType::Local;
                 } else {
-                    // in soft scope chain and local is not yet defined
+                    STC_LOG_REASON("is in global scope rooted soft scope chain")
+
+                    if (found) {
+                        STC_LOG_REASON("has an owning parent scope with global binding for symbol")
+                    }
+
+                    STC_LOG_REASON(fmt::format("running in {}interactive context",
+                                               in_interactive_ctx ? "" : "non-"))
+
+                    // inside global scope rooted soft scope chain, and local is not yet defined
                     inferred_binding =
-                        (found && in_interactive_ctx) ? BindingType::Global : BindingType::Local;
+                        found && in_interactive_ctx ? BindingType::Global : BindingType::Local;
                 }
             } else {
                 assert(infer_src == ScopeInferSrc::Access);
+                STC_LOG_REASON("is access bound")
 
                 // ideally, we find the symbol in scopes, but if not, we might be able to capture it
                 // directly from the Julia module itself during sema, so mark it as global
                 // (locals should always be detected in valid code, so if a local is missed, that's
                 // a sema/sym res bug)
-                inferred_binding =
-                    found ? (in_outer ? (it->type() == ScopeType::Global ? BindingType::Global
-                                                                         : BindingType::Captured)
-                                      : BindingType::Local)
-                          : BindingType::Global;
+
+                if (found) {
+                    BindingType bt = it->bt_find_sym(sym);
+
+                    STC_LOG_REASON(fmt::format(
+                        "has an owning parent scope with {} binding for symbol", bt_str(bt)))
+
+                    assert(bt != BindingType::Captured);
+
+                    if (bt == BindingType::Local)
+                        inferred_binding = BindingType::Captured;
+                    else
+                        inferred_binding = BindingType::Global;
+                } else {
+                    STC_LOG_REASON("does not have an owning parent scope")
+                    inferred_binding = BindingType::Global;
+                }
             }
         }
+
+        STC_LOG_REASON(fmt::format("===> inferred {} binding for '{}'", bt_str(inferred_binding),
+                                   ctx.get_sym(sym)))
 
         scope.bt_add_sym(sym, inferred_binding);
     }
 
     return true;
+
+#undef STC_LOG_REASON
 }
 
 Decl* SymbolRes::get_prev_decl(SymbolId sym) const {
@@ -300,6 +348,25 @@ void SymbolRes::visit_Assignment(Assignment& assign) {
     }
 
     // fallback for refs, field accesses, etc.
+    visit(lhs);
+}
+
+void SymbolRes::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    visit(up_assign.update_fn);
+    visit(up_assign.value);
+
+    Expr* lhs = ctx.get_node(up_assign.target);
+
+    if (auto* dre = dyn_cast<DeclRefExpr>(lhs)) {
+        assert(ctx.isa<SymbolLiteral>(dre->decl));
+
+        if (auto* sym = ctx.get_and_dyn_cast<SymbolLiteral>(dre->decl)) {
+            // access here doesn't matter, since it'll be overwritten by assign anyways
+            try_register(sym->value, up_assign, ScopeInferSrc::Assign);
+            return;
+        }
+    }
+
     visit(lhs);
 }
 

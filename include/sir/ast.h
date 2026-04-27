@@ -387,10 +387,13 @@ struct UnaryOp : public Expr {
 struct BinaryOp : public Expr {
     // clang-format off
     enum class OpKind : uint8_t {
-        add,  sub, mul, div, pow, mod,
-        eq,   neq, lt,  leq, gt,  geq,
-        land, lor, lxor,
-        band, bor, bxor
+        add,    sub,   mul,
+        div,    pow,   mod,
+        eq,     neq,   lt,
+        leq,    gt,    geq,
+        land,   lor,   lxor,
+        band,   bor,   bxor,
+        lshift, rshift
     };
     // clang-format on
 
@@ -402,6 +405,21 @@ struct BinaryOp : public Expr {
     OpKind op() const { return static_cast<OpKind>(node_storage()); }
 
     SAME_NODE_KIND_DEF(NodeKind::BinOp)
+};
+
+struct UpdateAssignment : public Expr {
+    using OpKind = BinaryOp::OpKind;
+
+    NodeId target, value;
+
+    explicit UpdateAssignment(SrcLocationId location, OpKind op, NodeId target, NodeId value)
+        : Expr{location, NodeKind::UpdateAssignment, static_cast<uint8_t>(op)},
+          target{target},
+          value{value} {}
+
+    OpKind op() const { return static_cast<OpKind>(node_storage()); }
+
+    SAME_NODE_KIND_DEF(NodeKind::UpdateAssignment)
 };
 
 struct ExplicitCast : public Expr {

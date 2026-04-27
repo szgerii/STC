@@ -28,23 +28,25 @@ std::string_view un_op_kind_str(UnOpKind op) {
 std::string_view bin_op_kind_str(BinOpKind op) {
     // clang-format off
     switch (op) {
-        case BinOpKind::add:  return "+";
-        case BinOpKind::sub:  return "-";
-        case BinOpKind::mul:  return "*";
-        case BinOpKind::div:  return "/";
-        case BinOpKind::mod:  return "%";
-        case BinOpKind::eq:   return "==";
-        case BinOpKind::neq:  return "!=";
-        case BinOpKind::lt:   return "<";
-        case BinOpKind::leq:  return "<=";
-        case BinOpKind::gt:   return ">";
-        case BinOpKind::geq:  return ">=";
-        case BinOpKind::land: return "&&";
-        case BinOpKind::lor:  return "||";
-        case BinOpKind::lxor: return "^^";
-        case BinOpKind::band: return "&";
-        case BinOpKind::bor:  return "|";
-        case BinOpKind::bxor: return "^";
+        case BinOpKind::add:    return "+";
+        case BinOpKind::sub:    return "-";
+        case BinOpKind::mul:    return "*";
+        case BinOpKind::div:    return "/";
+        case BinOpKind::mod:    return "%";
+        case BinOpKind::eq:     return "==";
+        case BinOpKind::neq:    return "!=";
+        case BinOpKind::lt:     return "<";
+        case BinOpKind::leq:    return "<=";
+        case BinOpKind::gt:     return ">";
+        case BinOpKind::geq:    return ">=";
+        case BinOpKind::land:   return "&&";
+        case BinOpKind::lor:    return "||";
+        case BinOpKind::lxor:   return "^^";
+        case BinOpKind::band:   return "&";
+        case BinOpKind::bor:    return "|";
+        case BinOpKind::bxor:   return "^";
+        case BinOpKind::lshift: return "<<";
+        case BinOpKind::rshift: return ">>";
 
         default:
             throw std::logic_error{"Unhandled binary op kind in glsl code gen"};
@@ -384,6 +386,12 @@ void GLSLCodeGenVisitor::visit_Assignment(Assignment& assign) {
     visit(assign.target);
     out << " = ";
     visit(assign.value);
+}
+
+void GLSLCodeGenVisitor::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    visit(up_assign.target);
+    out << fmt::format(" {}= ", bin_op_kind_str(up_assign.op()));
+    visit(up_assign.value);
 }
 
 void GLSLCodeGenVisitor::visit_FunctionCall(FunctionCall& fn_call) {

@@ -1,24 +1,10 @@
 #include "frontend/jl/scope.h"
+#include "frontend/jl/ast_utils.h"
 #include "frontend/jl/dumper.h"
 
 namespace {
 
 using namespace stc::jl;
-
-std::string scope_kind_str(ScopeKind kind) {
-    switch (kind) {
-        case ScopeKind::Global:
-            return "global";
-
-        case ScopeKind::Hard:
-            return "hard";
-
-        case ScopeKind::Soft:
-            return "soft";
-    }
-
-    throw std::logic_error{"Unaccounted ScopeKind value in scope_kind_str"};
-}
 
 std::string binding_type_str(BindingType bt) {
     switch (bt) {
@@ -82,7 +68,7 @@ void JLScope::dump(const JLCtx& ctx, std::ostream& out) const {
     out << "\n\nlocal function table:\n";
 
     for (const auto& [sym_id, entry] : local_fn_table) {
-        out << single_indent << ctx.get_sym(sym_id) << '(' << lft_entry_state_str(entry.state)
+        out << single_indent << ctx.get_sym(sym_id) << " (" << lft_entry_state_str(entry.state)
             << ") ->\n";
 
         for (const auto* mdecl : entry.method_decls) {

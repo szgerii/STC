@@ -6,39 +6,6 @@
 #include "julia_guard.h"
 #include "types/type_to_string.h"
 
-namespace {
-
-using namespace stc::jl;
-
-[[nodiscard]] STC_FORCE_INLINE std::string_view scope_str(ScopeType scope) {
-    switch (scope) {
-        case ScopeType::Global:
-            return "global";
-
-        case ScopeType::Local:
-            return "local";
-    }
-
-    throw std::logic_error{"Unaccounted ScopeType value in scope_str"};
-}
-
-[[nodiscard]] STC_FORCE_INLINE ScopeType bt_to_st(BindingType bt) {
-    if (bt == BindingType::Captured)
-        throw std::logic_error{"Trying to convert BindingType with value Captured to a ScopeType"};
-
-    assert((bt == BindingType::Global || bt == BindingType::Local) && "unaccounted binding type");
-    return bt == BindingType::Global ? ScopeType::Global : ScopeType::Local;
-}
-
-[[nodiscard]] STC_FORCE_INLINE std::string_view bt_str(BindingType bt) {
-    if (bt == BindingType::Captured)
-        return "captured";
-
-    return scope_str(bt_to_st(bt));
-}
-
-} // namespace
-
 namespace stc::jl {
 
 void JLSema::dump(const Expr& expr) const {
@@ -159,6 +126,11 @@ void JLSema::finalize() {
         return;
     }
 
+    if (scopes.empty()) {
+        stc::internal_error("global scope not found at the time Julia sema's finalize was called");
+        return;
+    }
+
     if (ctx.config.dump_scopes) {
         std::cout << "scope dump before popping global scope:\n";
         scopes[0].dump(ctx);
@@ -177,7 +149,7 @@ void JLSema::finalize() {
             if (mdecl->ret_type != ctx.jl_Nothing_t() || !mdecl->param_decls.empty())
                 fail("reserved function 'main' must return void, and take no parameters", *mdecl);
         } else {
-            fail("reserved function 'main' cannot have more than method defined", *main_fn);
+            fail("reserved function 'main' cannot have more than one method defined", *main_fn);
         }
     }
 
@@ -266,14 +238,12 @@ void JLSema::pop_scope(bool is_global, bool skip_mangle) {
         return;
     }
 
-    // uses index lookup for scopes and dmq, because visit_method_body could force scopes or
-    // dmq to grow, potentially creating dangling references/invalidated iterators
+    // uses index lookup for dmq, because visit_method_body could force dmq to grow, potentially
+    // creating dangling references/invalidated iterators
 
-    size_t scope_idx = scopes.size() - 1;
+    JLScope& scope = scopes.back();
 
-    // NOLINTNEXTLINE(modernize-loop-convert)
-    for (size_t i = 0; i < scopes[scope_idx].deferred_method_queue.size(); i++) {
-        NodeId m_id = scopes[scope_idx].deferred_method_queue[i];
+    for (NodeId m_id : scope.deferred_method_queue) {
         auto* mdecl = ctx.get_and_dyn_cast<MethodDecl>(m_id);
 
         if (mdecl == nullptr) {
@@ -290,11 +260,16 @@ void JLSema::pop_scope(bool is_global, bool skip_mangle) {
         }
 
         visit_method_body(*mdecl);
+        assert(&scopes.back() == &scope);
     }
+
+    assert(&scopes.back() == &scope);
 
     // mangle_scope already reports its own errors (and sets _success)
     if (!skip_mangle)
-        mangle_scope(scopes[scope_idx]);
+        mangle_scope(scope);
+
+    assert(&scopes.back() == &scope);
 
     scopes.pop_back();
 }
@@ -302,12 +277,12 @@ void JLSema::pop_scope(bool is_global, bool skip_mangle) {
 JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId checked_type,
                                                    const Expr& base_expr) const {
     if (actual_type.is_null()) {
-        // TODO: custom error
-        return TypeCheckResult::Failure;
+        // TODO: custom error?
+        return TypeCheckResult::Incompatible;
     }
 
     if (actual_type == checked_type)
-        return TypeCheckResult::Ok;
+        return TypeCheckResult::Match;
 
     if (is_jl_convertible(actual_type, checked_type, tpool)) {
         if (ctx.target_info == nullptr) {
@@ -316,7 +291,7 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
                              type_str(actual_type), type_str(checked_type)),
                  base_expr);
 
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
         }
 
         if (ctx.target_info->can_implicit_cast(actual_type, expected_type))
@@ -325,7 +300,7 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
         if (ctx.target_info->valid_ctor_call(expected_type, std::vector{actual_type}))
             return TypeCheckResult::ExplicitCast;
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
 
     const auto& expected_td = tpool.get_td(checked_type);
@@ -346,9 +321,9 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
         }
 
         if (expected_fn.identifier.is_null() || expected_fn.identifier == actual_id)
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
 
     if (expected_td.is_array() && actual_td.get().is_array()) {
@@ -356,14 +331,14 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
         ArrayTD actual_arr_ty   = actual_td.get().as<ArrayTD>();
 
         if (check_type_against(actual_arr_ty.element_type_id, expected_arr_ty.element_type_id,
-                               base_expr) != TypeCheckResult::Ok)
-            return TypeCheckResult::Failure;
+                               base_expr) != TypeCheckResult::Match)
+            return TypeCheckResult::Incompatible;
 
         if (tpool.is_array_any_size(checked_type))
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
 
-        return actual_arr_ty.length == expected_arr_ty.length ? TypeCheckResult::Ok
-                                                              : TypeCheckResult::Failure;
+        return actual_arr_ty.length == expected_arr_ty.length ? TypeCheckResult::Match
+                                                              : TypeCheckResult::Incompatible;
     }
 
     if (expected_td.is_vector() && actual_td.get().is_vector()) {
@@ -371,15 +346,15 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
         VectorTD actual_vec_ty   = actual_td.get().as<VectorTD>();
 
         if (check_type_against(actual_vec_ty.component_type_id, expected_vec_ty.component_type_id,
-                               base_expr) != TypeCheckResult::Ok)
-            return TypeCheckResult::Failure;
+                               base_expr) != TypeCheckResult::Match)
+            return TypeCheckResult::Incompatible;
 
         if (tpool.is_vec_any_size(checked_type))
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
 
         return actual_vec_ty.component_count == expected_vec_ty.component_count
-                   ? TypeCheckResult::Ok
-                   : TypeCheckResult::Failure;
+                   ? TypeCheckResult::Match
+                   : TypeCheckResult::Incompatible;
     }
 
     if (expected_td.is_matrix() && actual_td.get().is_matrix()) {
@@ -393,20 +368,20 @@ JLSema::TypeCheckResult JLSema::check_type_against(TypeId actual_type, TypeId ch
         VectorTD expected_col_ty = tpool.get_td(expected_mat_ty.column_type_id).as<VectorTD>();
 
         if (check_type_against(actual_col_ty.component_type_id, expected_col_ty.component_type_id,
-                               base_expr) != TypeCheckResult::Ok)
-            return TypeCheckResult::Failure;
+                               base_expr) != TypeCheckResult::Match)
+            return TypeCheckResult::Incompatible;
 
         if (tpool.is_mat_any_size(checked_type))
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
 
         if (actual_mat_ty.column_count == expected_mat_ty.column_count &&
             actual_col_ty.component_count == expected_col_ty.component_count)
-            return TypeCheckResult::Ok;
+            return TypeCheckResult::Match;
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
 
-    return TypeCheckResult::Failure;
+    return TypeCheckResult::Incompatible;
 }
 
 JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allow_pretyped,
@@ -417,7 +392,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
                        "into consideration at the call site.",
                        expr);
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
 
     bool old_pretyped_value = allow_pretyped_nodes;
@@ -430,7 +405,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
                        "already been determined, while the allow_pretyped argument is false",
                        expr);
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
     auto prev_expected  = this->expected_type;
     this->expected_type = checked_type;
@@ -447,7 +422,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
         expr.type = impl_this()->visit(&expr);
         assert(expr.type.is_null() || expr.type == tpool.void_td());
 
-        return !expr.type.is_null() ? TypeCheckResult::Ok : TypeCheckResult::Failure;
+        return !expr.type.is_null() ? TypeCheckResult::Match : TypeCheckResult::Incompatible;
     }
 
     TypeId actual_type = expr.type.is_null() ? impl_this()->visit(&expr) : expr.type;
@@ -457,7 +432,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
         fail("nodes representing strings are not allowed", expr);
 
     TypeCheckResult result = check_type_against(actual_type, checked_type, expr);
-    if (result == TypeCheckResult::Failure) {
+    if (result == TypeCheckResult::Incompatible) {
         // if actual_type is null, that's mostly an already reported error
         if (_success || !actual_type.is_null()) {
             std::string reason{};
@@ -490,7 +465,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
                  expr);
         }
 
-        return TypeCheckResult::Failure;
+        return TypeCheckResult::Incompatible;
     }
 
     expr.type = actual_type;
@@ -517,10 +492,10 @@ bool JLSema::check(NodeId& node_id, TypeId expected, bool allow_pretyped) {
 
     // NOTE: cast AST nodes already set their type in their ctor, there's no need to visit them
     switch (result.value) {
-        case TypeCheckResult::Ok:
+        case TypeCheckResult::Match:
             return true;
 
-        case TypeCheckResult::Failure:
+        case TypeCheckResult::Incompatible:
             return false;
 
         case TypeCheckResult::ImplicitCast:
@@ -578,7 +553,7 @@ TypeId JLSema::visit_VarDecl(VarDecl& vdecl) {
 
     if (vdecl.scope() == MaybeScopeType::Unspec) {
         return fail("variable declarations must specify a scope type (i.e. local x::Int instead of "
-                    "x::Int), as without them, the language construct is officially a type assert, "
+                    "x::Int), as without them, the language construct may be a type assert, "
                     "not a declaration",
                     vdecl);
     }
@@ -596,14 +571,17 @@ TypeId JLSema::visit_VarDecl(VarDecl& vdecl) {
                                           ctx.get_sym(vdecl.identifier)),
                               vdecl);
 
-    if (*expected_bt == BindingType::Captured)
-        return internal_error("wrongfully inferred binding type of Captured for a symbol that is "
-                              "explicitly declared in scope",
-                              vdecl);
+    if (*expected_bt == BindingType::Captured) {
+        return internal_error(
+            "symbol resolution wrongfully inferred captured binding type for a symbol that is "
+            "explicitly declared in scope",
+            vdecl);
+    }
 
     ScopeType expected_st = bt_to_st(*expected_bt);
     ScopeType actual_st   = mst_to_st(vdecl.scope());
 
+    // special msg to reduce confusion about global scope in transpiled code
     if (expected_st == ScopeType::Global && actual_st == ScopeType::Local) {
         return fail(fmt::format("cannot declare symbol '{}' local in the global scope",
                                 ctx.get_sym(vdecl.identifier)),
@@ -642,9 +620,12 @@ TypeId JLSema::visit_VarDecl(VarDecl& vdecl) {
         result_type = infer(vdecl.initializer);
     }
 
-    // CLEANUP: add info about new and old decl type (here and elsewhere)
     NodeId decl_id = ctx.calculate_node_id(vdecl);
-    bool added     = st_register(vdecl.identifier, decl_id);
+
+    assert(expected_st == actual_st);
+    JLScope& target_scope = expected_st == ScopeType::Global ? global_scope() : current_scope();
+
+    bool added = target_scope.st_add_sym(vdecl.identifier, decl_id);
     if (!added) {
         return fail(fmt::format("redeclaration of symbol '{}' in the same scope (as a variable)",
                                 ctx.get_sym(vdecl.identifier)),
@@ -658,23 +639,6 @@ TypeId JLSema::visit_ParamDecl(ParamDecl& pdecl) {
     // TODO: support for kwargs (here and in MethodDecl visitor)
     if (pdecl.is_kwarg())
         return fail("kwargs are currently not supported", pdecl);
-
-    /*
-    auto expected_bt = binding_of(pdecl.identifier);
-
-    if (!expected_bt.has_value())
-        return internal_error(
-            fmt::format(
-                "symbol resolution pass failed to infer binding type for parameter symbol '{}'",
-                ctx.get_sym(pdecl.identifier)),
-            pdecl);
-
-    if (*expected_bt != BindingType::Local)
-        return internal_error(
-            fmt::format("wrongfully inferred non-local binding type for parameter symbol '{}'",
-                        ctx.get_sym(pdecl.identifier)),
-            pdecl);
-    */
 
     TypeId result_type = TypeId::null_id();
 
@@ -856,7 +820,7 @@ TypeId JLSema::visit_MethodDecl(MethodDecl& method) {
         auto* main_body_cmpd = ctx.get_and_dyn_cast<CompoundExpr>(method.body);
         assert(main_body_cmpd != nullptr);
 
-        if (!ctx.isa<ReturnStmt>(main_body_cmpd->body.back())) {
+        if (main_body_cmpd->body.empty() || !ctx.isa<ReturnStmt>(main_body_cmpd->body.back())) {
             SrcLocationId impl_ret_loc = !main_body_cmpd->body.empty()
                                              ? ctx.get_node(main_body_cmpd->body.back())->location
                                              : main_body_cmpd->location;
@@ -1454,7 +1418,7 @@ TypeId JLSema::visit_IndexerExpr(IndexerExpr& idx_expr) {
         return fail("failed to infer type for target of an indexer expression", idx_expr);
 
     if (is_checking()) {
-        TypeCheckResult res = TypeCheckResult::Failure;
+        TypeCheckResult res = TypeCheckResult::Incompatible;
 
         if (tpool.get_td(expected_type).is_scalar()) {
             res = check_type_against(coll_type, tpool.any_vec_td(expected_type), idx_expr);
@@ -1467,7 +1431,7 @@ TypeId JLSema::visit_IndexerExpr(IndexerExpr& idx_expr) {
         }
 
         // this explicitly disallows casting on the target's type
-        if (res != TypeCheckResult::Ok) {
+        if (res != TypeCheckResult::Match) {
             return fail(fmt::format("target of an indexer expression could not be checked to hold "
                                     "a collection of the expected '{}' type",
                                     type_str(expected_type)),
@@ -1738,10 +1702,95 @@ TypeId JLSema::visit_ExplicitCast(ExplicitCast& expl_cast) {
     return expl_cast.type;
 }
 
+NodeId JLSema::resolve_sym_with_binding(SymbolId sym, BindingType bt, const Expr& base_expr) {
+    bool is_global   = bt == BindingType::Global;
+    bool is_captured = bt == BindingType::Captured;
+    bool is_local    = bt == BindingType::Local;
+
+    NodeId reffed_decl = NodeId::null_id();
+    if (is_global)
+        reffed_decl = global_scope().st_find_sym(sym);
+    else if (is_captured)
+        reffed_decl = find_local_sym(sym);
+    else if (is_local)
+        reffed_decl = find_sym_in_current_scope(sym);
+
+    if (!reffed_decl.is_null()) {
+        auto* decl = ctx.get_and_dyn_cast<Decl>(reffed_decl);
+        if (decl == nullptr) {
+            internal_error("non-declaration node in symbol table", base_expr);
+            return NodeId::null_id();
+        }
+
+        return reffed_decl;
+    }
+
+    if (is_global && ctx.target_info != nullptr) {
+        TypeId glob_ty = ctx.target_info->builtin_global_ty(ctx.get_sym(sym));
+
+        if (!glob_ty.is_null()) {
+            NodeId builtin_decl =
+                ctx.emplace_node<VarDecl>(base_expr.location, sym, glob_ty, ScopeType::Global,
+                                          NodeId::null_id(), true)
+                    .first;
+
+            infer(builtin_decl);
+            global_scope().st_add_sym(sym, builtin_decl);
+
+            return builtin_decl;
+        }
+    }
+
+    if (is_global && tpool.is_any_func(expected_type)) {
+        // TODO
+        // builtins hide calls to jl fns, if they'd have a valid match, while the builtin doesnt
+
+        auto sym_str = ctx.get_sym(sym);
+
+        // try to resolve through builtins first
+        if (ctx.target_info != nullptr && ctx.target_info->has_builtin_fn(sym_str)) {
+            auto builtin_fn = ctx.emplace_node<BuiltinFunction>(base_expr.location, sym).first;
+            infer(builtin_fn);
+
+            return builtin_fn;
+        }
+
+        // try to resolve in JuliaGLM before any other module
+        jl_value_t* jl_fn = ctx.jl_env.module_cache.glm_mod.get_fn(sym_str, false);
+
+        if (jl_fn == nullptr)
+            jl_fn = find_jl_function(sym_str, ctx.jl_env, false);
+
+        if (jl_fn == nullptr) {
+            fail(fmt::format("couldn't find function '{}' in the symbol table, or in the "
+                             "root julia module",
+                             sym_str),
+                 base_expr);
+
+            return NodeId::null_id();
+        }
+
+        SymbolId fn_name = ctx.sym_pool.get_id(get_jl_fn_name(jl_fn));
+
+        auto opaq_fn = ctx.emplace_node<OpaqueFunction>(base_expr.location, fn_name, jl_fn).first;
+        infer(opaq_fn);
+
+        if (!rt::is_type(jl_fn) && ctx.config.warn_on_jl_sema_query)
+            warn(fmt::format("had to resolve function reference through julia for non-type "
+                             "referring symbol '{}'",
+                             sym_str),
+                 base_expr);
+
+        return opaq_fn;
+    }
+
+    return NodeId::null_id();
+}
+
 TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
     auto* inner = ctx.get_node(dre.decl);
     if (inner == nullptr)
-        return internal_error("declaration reference expression points to null", dre);
+        return internal_error("declaration reference expression wrapping a nullptr", dre);
 
     // already resolved state
     if (auto* decl = dyn_cast<Decl>(inner))
@@ -1754,86 +1803,27 @@ TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
     if (sym == nullptr)
         return internal_error("declaration reference expression points to invalid node kind", dre);
 
-    auto sym_str  = ctx.get_sym(sym->value);
     auto maybe_bt = binding_of(sym->value);
 
-    if (!maybe_bt.has_value())
+    if (!maybe_bt.has_value()) {
         return internal_error(fmt::format("symbol resolution pass failed to infer binding type for "
                                           "symbol '{}' in a declaration",
-                                          sym_str),
+                                          ctx.get_sym(sym->value)),
                               *sym);
-
-    bool is_global     = *maybe_bt == BindingType::Global;
-    bool is_captured   = *maybe_bt == BindingType::Captured;
-    NodeId reffed_decl = find_sym(sym->value);
-
-    if (!reffed_decl.is_null()) {
-        auto* decl = ctx.get_and_dyn_cast<Decl>(reffed_decl);
-        if (decl == nullptr)
-            return internal_error("non-declaration node in symbol table", dre);
-
-        dre.decl = reffed_decl;
-
-        return decl->type;
     }
 
-    if (is_global && ctx.target_info != nullptr) {
-        TypeId glob_ty = ctx.target_info->builtin_global_ty(ctx.get_sym(sym->value));
+    NodeId decl = resolve_sym_with_binding(sym->value, *maybe_bt, dre);
+    if (!decl.is_null()) {
+        assert(ctx.get_node(decl) != nullptr);
 
-        if (!glob_ty.is_null()) {
-            NodeId builtin_decl =
-                ctx.emplace_node<VarDecl>(dre.location, sym->value, glob_ty, ScopeType::Global,
-                                          NodeId::null_id(), true)
-                    .first;
-
-            dre.decl = builtin_decl;
-            global_scope().st_add_sym(sym->value, builtin_decl);
-
-            return glob_ty;
-        }
+        dre.decl = decl;
+        return ctx.get_node(decl)->type;
     }
 
-    if (is_captured)
-        return fail(fmt::format("forward capture of symbol '{}' is not allowed", sym_str), dre);
-
-    bool is_fn_ref = *maybe_bt == BindingType::Global && tpool.is_any_func(expected_type);
-    if (is_fn_ref) {
-        // TODO
-        // builtins hide calls to jl fns, if they'd have a valid match, while the builtin doesnt
-
-        // try to resolve through builtins first
-        if (ctx.target_info != nullptr && ctx.target_info->has_builtin_fn(sym_str)) {
-            dre.decl = ctx.emplace_node<BuiltinFunction>(dre.location, sym->value).first;
-            infer(dre.decl);
-
-            return tpool.func_td(sym->value);
-        }
-
-        // try to resolve in JuliaGLM before any other module
-        jl_value_t* jl_fn = ctx.jl_env.module_cache.glm_mod.get_fn(sym_str, false);
-
-        if (jl_fn == nullptr)
-            jl_fn = find_jl_function(sym_str, ctx.jl_env, false);
-
-        if (jl_fn == nullptr) {
-            return fail(fmt::format("couldn't find function '{}' in the symbol table, or in the "
-                                    "root julia module",
-                                    sym_str),
-                        dre);
-        }
-
-        SymbolId fn_name = ctx.sym_pool.get_id(get_jl_fn_name(jl_fn));
-
-        dre.decl = ctx.emplace_node<OpaqueFunction>(dre.location, fn_name, jl_fn).first;
-        infer(dre.decl);
-
-        if (!rt::is_type(jl_fn) && ctx.config.warn_on_jl_sema_query)
-            warn(fmt::format("had to resolve function reference through julia for non-type "
-                             "referring symbol '{}'",
-                             sym_str),
-                 dre);
-
-        return tpool.func_td(fn_name);
+    if (*maybe_bt == BindingType::Captured) {
+        return fail(
+            fmt::format("forward capture of symbol '{}' is not allowed", ctx.get_sym(sym->value)),
+            dre);
     }
 
     return fail(fmt::format("use of undeclared or uninitialized symbol '{}' (binding type: {})",
@@ -1854,36 +1844,22 @@ TypeId JLSema::visit_Assignment(Assignment& assign) {
         // uninitialized symbol
         // infer rhs -> define decl from binding info of sym res pass
         if (auto* sym = dyn_cast<SymbolLiteral>(lhs_target)) {
-            NodeId decl_id = find_sym(sym->value);
+            auto maybe_bt = binding_of(sym->value);
+
+            if (!maybe_bt.has_value()) {
+                return internal_error(fmt::format("symbol resolution pass failed to infer binding "
+                                                  "type for symbol '{}' in assignment lhs",
+                                                  ctx.get_sym(sym->value)),
+                                      assign);
+            }
+
+            BindingType bt = *maybe_bt;
+            NodeId decl_id = resolve_sym_with_binding(sym->value, bt, assign);
 
             if (decl_id.is_null()) {
                 TypeId inf_type = infer(assign.value);
                 if (inf_type.is_null())
                     return TypeId::null_id();
-
-                auto maybe_bt = binding_of(sym->value);
-
-                if (!maybe_bt.has_value())
-                    return internal_error(
-                        fmt::format("symbol resolution pass failed to infer binding "
-                                    "type for symbol '{}' in assignment lhs",
-                                    ctx.get_sym(sym->value)),
-                        assign);
-
-                BindingType bt = *maybe_bt;
-
-                if (bt == BindingType::Captured) {
-                    // TODO:
-                    // build capture sema into MethodDecl, allow generating captures-as-args
-                    // that could, in turn, allow this to be handled
-                    return fail(
-                        fmt::format(
-                            "assignment to captured symbol before definition for symbol '{}'. "
-                            "Currently, all variables must be assigned before they can be captured "
-                            "by an inner function.",
-                            ctx.get_sym(sym->value)),
-                        assign);
-                }
 
                 auto [new_decl_id, new_decl_ptr] =
                     ctx.emplace_node<VarDecl>(sym->location, sym->value, inf_type, bt_to_st(bt));
@@ -1900,13 +1876,15 @@ TypeId JLSema::visit_Assignment(Assignment& assign) {
                 return inf_type;
             }
 
-            // already initialized symbol
-            // infer lhs -> check rhs
-            dre->decl = decl_id;
+            assert(ctx.get_node(decl_id) != nullptr);
+            dre->decl = decl_id; // this is resolved after the if
         }
 
         if (ctx.isa<OpaqueFunction>(dre->decl))
             return fail("assignment to Julia-side function is not allowed", assign);
+
+        if (ctx.isa<BuiltinFunction>(dre->decl))
+            return fail("assignment to target language's builtin function is not allowed", assign);
     }
 
     TypeId target_type = infer(assign.target);
@@ -1947,8 +1925,64 @@ TypeId JLSema::visit_Assignment(Assignment& assign) {
     return target_type;
 }
 
-// TODO: add jl dumps for types
-// TODO: print inferred sig
+TypeId JLSema::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    if (!ctx.config.forward_fns) {
+        return fail("update assignment operators are currently not supported with function "
+                    "forwarding disabled.",
+                    up_assign);
+    }
+
+    if (up_assign.value.is_null())
+        return TypeId::null_id();
+
+    bool is_fn = check(up_assign.update_fn, tpool.any_func_td());
+    if (!is_fn)
+        return fail("update assignment's operator couldn't be checked to have function type",
+                    up_assign);
+
+    auto* fn_dre = ctx.get_and_dyn_cast<DeclRefExpr>(up_assign.update_fn);
+    auto* opaq_fn =
+        fn_dre != nullptr ? ctx.get_and_dyn_cast<OpaqueFunction>(fn_dre->decl) : nullptr;
+    if (opaq_fn == nullptr)
+        return internal_error("update assignment's operator resolved to a non-opaque function",
+                              up_assign);
+
+    // lhs should be inferrable for valid update assignments
+    TypeId lhs_ty   = infer(up_assign.target);
+    TypeId value_ty = infer(up_assign.value); // CLEANUP: check call instead of this
+
+    std::vector<TypeId> arg_types = {lhs_ty, value_ty};
+
+    TypeId rhs_ty =
+        ret_type_of_jl_call(opaq_fn->jl_function, arg_types, up_assign.is_broadcast(), up_assign);
+
+    if (rhs_ty.is_null())
+        return TypeId::null_id();
+
+    TypeCheckResult tcr = check_type_against(rhs_ty, lhs_ty, up_assign);
+
+    if (tcr != TypeCheckResult::Match) {
+        return fail(
+            fmt::format("invalid update assignment operator, applying '{}' to lhs and rhs yields a "
+                        "type that {}",
+                        get_jl_fn_name(opaq_fn->jl_function),
+                        tcr != TypeCheckResult::Incompatible
+                            ? "can only be stored in the target through an implicit, or explicit "
+                              "cast, which is not allowed"
+                            : "cannot be converted to the target's expected type"),
+            up_assign);
+    }
+
+    if (ctx.config.warn_on_fn_forward) {
+        warn(fmt::format("update assignment forced sema to utilize function forwarding for "
+                         "function '{}'",
+                         ctx.get_sym(opaq_fn->fn_name())),
+             up_assign);
+    }
+
+    return rhs_ty;
+}
+
 TypeId JLSema::ret_type_of_jl_call(jl_value_t* fn, const std::vector<TypeId>& arg_types,
                                    bool is_broadcast, const Expr& base_expr) {
     assert(fn != nullptr);
@@ -2140,7 +2174,7 @@ std::optional<MethodDecl*> JLSema::find_sig_match(const FunctionDecl& fn_decl,
                 break;
             }
 
-            if (check_type_against(*arg_it, pdecl->type, base_expr) != TypeCheckResult::Ok) {
+            if (check_type_against(*arg_it, pdecl->type, base_expr) != TypeCheckResult::Match) {
                 sig_match = false;
                 break;
             }
@@ -2203,6 +2237,30 @@ TypeId JLSema::visit_FunctionCall(FunctionCall& fn_call) {
     if (target_decl.is_null())
         return internal_error("empty declaration in function call's target", fn_call);
 
+    std::vector<TypeId> arg_types{};
+    arg_types.reserve(fn_call.args.size());
+
+    for (NodeId& arg : fn_call.args) {
+        if (arg.is_null())
+            return internal_error("null node as argument to function call", fn_call);
+
+        TypeId arg_type = infer(arg);
+
+        if (arg_type.is_null()) {
+            Expr* arg_expr = ctx.get_node(arg);
+            assert(arg_expr != nullptr);
+
+            if (_success)
+                fail("cannot infer static type for argument in function call", *arg_expr);
+
+            return TypeId::null_id();
+        }
+
+        arg_types.emplace_back(arg_type);
+    }
+
+    assert(arg_types.size() == fn_call.args.size());
+
     // exactly one of these should be non-nullptr by the end of resolution
     FunctionDecl* fn_decl       = nullptr;
     BuiltinFunction* builtin_fn = nullptr;
@@ -2249,30 +2307,6 @@ TypeId JLSema::visit_FunctionCall(FunctionCall& fn_call) {
                     "currently not supported",
                     fn_call);
     }
-
-    std::vector<TypeId> arg_types{};
-    arg_types.reserve(fn_call.args.size());
-
-    for (NodeId& arg : fn_call.args) {
-        if (arg.is_null())
-            return internal_error("null node as argument to function call", fn_call);
-
-        TypeId arg_type = infer(arg);
-
-        if (arg_type.is_null()) {
-            Expr* arg_expr = ctx.get_node(arg);
-            assert(arg_expr != nullptr);
-
-            if (_success)
-                fail("cannot infer static type for argument in function call", *arg_expr);
-
-            return TypeId::null_id();
-        }
-
-        arg_types.emplace_back(arg_type);
-    }
-
-    assert(arg_types.size() == fn_call.args.size());
 
     if (fn_decl != nullptr) {
         auto target_method = find_sig_match(*fn_decl, arg_types, fn_call);

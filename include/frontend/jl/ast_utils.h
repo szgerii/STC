@@ -6,6 +6,33 @@
 
 namespace stc::jl {
 
+inline std::string scope_kind_str(ScopeKind kind) {
+    switch (kind) {
+        case ScopeKind::Global:
+            return "global";
+
+        case ScopeKind::Hard:
+            return "hard";
+
+        case ScopeKind::Soft:
+            return "soft";
+    }
+
+    throw std::logic_error{"Unaccounted ScopeKind value in scope_kind_str"};
+}
+
+inline std::string_view scope_str(ScopeType scope) {
+    switch (scope) {
+        case ScopeType::Global:
+            return "global";
+
+        case ScopeType::Local:
+            return "local";
+    }
+
+    throw std::logic_error{"Unaccounted ScopeType value in scope_str"};
+}
+
 inline std::string mod_chain_to_path(const std::vector<NodeId>& chain, const JLCtx& ctx,
                                      const SymbolPool& sym_pool, size_t first_n = 0) {
     static constexpr size_t MOD_NAME_LENGTH_GUESS = 5U;

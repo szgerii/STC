@@ -46,6 +46,8 @@ std::string op_str(BinOpKind op) {
         STC_OP_STR_CASE(band)
         STC_OP_STR_CASE(bor)
         STC_OP_STR_CASE(bxor)
+        STC_OP_STR_CASE(lshift)
+        STC_OP_STR_CASE(rshift)
     }
 
     throw std::logic_error{"Unaccounted binary operator kind"};
@@ -292,6 +294,21 @@ void SIRDumper::visit_Assignment(Assignment& assign) {
     out << indent() << dump_label("value");
     inc_indent();
     visit(assign.value);
+    dec_indent();
+}
+
+void SIRDumper::visit_UpdateAssignment(UpdateAssignment& up_assign) {
+    out << indent() << "UpdateAssignment: \n";
+    out << indent() << "op: " << op_str(up_assign.op()) << '\n';
+
+    out << indent() << dump_label("target");
+    inc_indent();
+    visit(up_assign.target);
+    dec_indent();
+
+    out << indent() << dump_label("value");
+    inc_indent();
+    visit(up_assign.value);
     dec_indent();
 }
 

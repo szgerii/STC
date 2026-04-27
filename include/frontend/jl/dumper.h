@@ -30,6 +30,9 @@ private:
     std::string indent() const;
     void inc_indent();
     void dec_indent();
+
+    void dump_with_label(std::string_view label, NodeId node);
+    void dump_with_label(std::string_view label, const std::vector<NodeId>& nodes);
 };
 
 static_assert(CJLVisitorImpl<JLDumper, void>);

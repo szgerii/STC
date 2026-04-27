@@ -7,13 +7,14 @@
 #include "frontend/jl/type_conversion.h"
 #include "frontend/jl/visitor.h"
 
+#include <deque>
 #include <span>
 
 namespace stc::jl {
 
 class JLSema : public JLVisitor<JLSema, JLCtx, TypeId> {
     TypePool& tpool;
-    std::vector<JLScope> scopes;
+    std::deque<JLScope> scopes;
     TypeToJLVisitor type_to_jl;
 
     NodeId main_fn_decl        = NodeId::null_id();
@@ -56,14 +57,14 @@ public:
     void visit_method_body(MethodDecl& method);
 
     struct TypeCheckResult {
-        enum TypeCheckResultOption : uint8_t { Ok, ImplicitCast, ExplicitCast, Failure };
+        enum TypeCheckResultOption : uint8_t { Match, ImplicitCast, ExplicitCast, Incompatible };
 
         TypeCheckResultOption value;
 
         constexpr TypeCheckResult(TypeCheckResultOption value)
             : value{value} {}
 
-        constexpr operator bool() const { return value != Failure; }
+        constexpr operator bool() const { return value != Incompatible; }
 
         constexpr bool operator==(const TypeCheckResultOption& opt) const { return value == opt; }
     };
@@ -115,6 +116,8 @@ private:
                                               const std::vector<TypeId>& arg_types,
                                               const Expr& base_expr);
 
+    NodeId resolve_sym_with_binding(SymbolId sym, BindingType bt, const Expr& base_expr);
+
     void wrap_in_cast(NodeId& target, TypeId cast_type, bool explicit_cast, Expr& expr) {
         assert(!target.is_null() && ctx.get_node(target) != nullptr);
         assert(ctx.get_node(target) == &expr);
@@ -140,7 +143,7 @@ private:
     }
 
     JLScope& push_scope(ScopeKind scope_kind, CompoundExpr& body) {
-        return scopes.emplace_back(scope_kind, body, scopes.size() + 1, ctx);
+        return scopes.emplace_back(scope_kind, body, scopes.size(), ctx);
     }
 
     static SymbolId get_usym_for(SymbolId sym_id, SymbolPool& sym_pool) {
@@ -299,9 +302,11 @@ private:
                     "exception thrown while popping scope at depth #{}, see message below:",
                     scope.depth()));
                 std::cerr << e.what() << '\n';
+                sema._success = false;
             } catch (...) {
-                stc::internal_error(fmt::format("exception thrown while popping scope at depth #{}",
+                stc::internal_error(fmt::format("unexpected throw while popping scope at depth #{}",
                                                 scope.depth()));
+                sema._success = false;
             }
         }
 
@@ -323,6 +328,8 @@ private:
             return *cmpd;
         }
     };
+
+    friend class ScopeRAII;
 };
 static_assert(CJLVisitorImpl<JLSema, TypeId>);
 

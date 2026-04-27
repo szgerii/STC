@@ -28,25 +28,27 @@ public:
     explicit JLLoweringVisitor(JLCtx&& ctx)
         : JLVisitor{ctx}, sir_ctx{sir::SIRCtx::move_pools_from(std::move(ctx))} {
 
-        sym_plus     = sir_ctx.sym_pool.get_id("+");
-        sym_minus    = sir_ctx.sym_pool.get_id("-");
-        sym_asterisk = sir_ctx.sym_pool.get_id("*");
-        sym_slash    = sir_ctx.sym_pool.get_id("/");
-        sym_div      = sir_ctx.sym_pool.get_id("div");
-        sym_caret    = sir_ctx.sym_pool.get_id("^");
-        sym_perc     = sir_ctx.sym_pool.get_id("%");
-        sym_rem      = sir_ctx.sym_pool.get_id("rem");
-        sym_dbl_eq   = sir_ctx.sym_pool.get_id("==");
-        sym_neq      = sir_ctx.sym_pool.get_id("!=");
-        sym_lt       = sir_ctx.sym_pool.get_id("<");
-        sym_leq      = sir_ctx.sym_pool.get_id("<=");
-        sym_gt       = sir_ctx.sym_pool.get_id(">");
-        sym_geq      = sir_ctx.sym_pool.get_id(">=");
-        sym_xor      = sir_ctx.sym_pool.get_id("xor");
-        sym_amper    = sir_ctx.sym_pool.get_id("&");
-        sym_pipe     = sir_ctx.sym_pool.get_id("|");
-        sym_bang     = sir_ctx.sym_pool.get_id("!");
-        sym_tilde    = sir_ctx.sym_pool.get_id("~");
+        sym_plus       = sir_ctx.sym_pool.get_id("+");
+        sym_minus      = sir_ctx.sym_pool.get_id("-");
+        sym_asterisk   = sir_ctx.sym_pool.get_id("*");
+        sym_slash      = sir_ctx.sym_pool.get_id("/");
+        sym_div        = sir_ctx.sym_pool.get_id("div");
+        sym_caret      = sir_ctx.sym_pool.get_id("^");
+        sym_perc       = sir_ctx.sym_pool.get_id("%");
+        sym_rem        = sir_ctx.sym_pool.get_id("rem");
+        sym_dbl_eq     = sir_ctx.sym_pool.get_id("==");
+        sym_neq        = sir_ctx.sym_pool.get_id("!=");
+        sym_lt         = sir_ctx.sym_pool.get_id("<");
+        sym_leq        = sir_ctx.sym_pool.get_id("<=");
+        sym_gt         = sir_ctx.sym_pool.get_id(">");
+        sym_geq        = sir_ctx.sym_pool.get_id(">=");
+        sym_xor        = sir_ctx.sym_pool.get_id("xor");
+        sym_amper      = sir_ctx.sym_pool.get_id("&");
+        sym_pipe       = sir_ctx.sym_pool.get_id("|");
+        sym_bang       = sir_ctx.sym_pool.get_id("!");
+        sym_tilde      = sir_ctx.sym_pool.get_id("~");
+        sym_dbl_langle = sir_ctx.sym_pool.get_id("<<");
+        sym_dbl_rangle = sir_ctx.sym_pool.get_id(">>");
     }
 
     bool pre_visit_ptr(Expr* expr);
@@ -64,6 +66,8 @@ public:
     sir::SIRCtx sir_ctx;
 
 private:
+    std::optional<sir::BinaryOp::OpKind> sym_to_bin_op(SymbolId sym, bool in_logical_ctx) const;
+
     template <typename T, typename... Args>
     SIRNodeId emplace_node(Args&&... args) {
         return sir_ctx.template emplace_node<T>(std::forward<Args>(args)...).first;
@@ -103,7 +107,7 @@ private:
 
     SymbolId sym_plus, sym_minus, sym_asterisk, sym_slash, sym_div, sym_caret, sym_perc, sym_rem,
         sym_dbl_eq, sym_neq, sym_lt, sym_leq, sym_gt, sym_geq, sym_xor, sym_amper, sym_pipe,
-        sym_bang, sym_tilde;
+        sym_bang, sym_tilde, sym_dbl_langle, sym_dbl_rangle;
 };
 
 } // namespace stc::jl
