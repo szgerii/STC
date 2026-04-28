@@ -11,15 +11,8 @@ version_match = match(r"project\([^ ]+ VERSION (\d+\.\d+\.\d+)\)", cmake_content
 if isnothing(version_match)
     error("could not strip VERSION from CMakeLists.txt file")
 end
-base_ver = version_match[1]
 
-suffix_match = match(r"set\(STC_VERSION_SUFFIX\s*\"([^\"]*)\"\)", cmake_content)
-if isnothing(suffix_match)
-    error("could not strip STC_VERSION_SUFFIX from CmakeLists.txt file")
-end
-suffix = suffix_match[1]
-
-version = VersionNumber(isempty(suffix) ? base_ver : string(base_ver, '-', suffix))
+version = VersionNumber(version_match[1])
 
 # try to grab git hash for versioning on the host itself
 git_hash = try
