@@ -44,7 +44,7 @@ inline std::string indent(size_t level, const TranspilerConfig& config) {
     return indent(level, config.dump_indent, config.use_tabs);
 }
 
-void report(std::string_view msg, std::string_view prefix = ""sv, std::ostream& out = std::cerr);
+void report(std::string_view msg, std::ostream& out = std::cerr);
 
 void error(std::string_view msg, std::ostream& out = std::cerr);
 void warning(std::string_view msg, std::ostream& out = std::cerr);

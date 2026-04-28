@@ -5,20 +5,23 @@
 
 namespace stc {
 
-void report(std::string_view msg, std::string_view prefix, std::ostream& out) {
-    out << prefix << msg << '\n';
+void report(std::string_view msg, std::ostream& out) {
+    out << msg << '\n';
 }
 
 void error(std::string_view msg, std::ostream& out) {
-    report(msg, colored("[Error] ", ansi_codes::red), out);
+    out << colored("[Error] ", ansi_codes::red);
+    report(msg, out);
 }
 
 void warning(std::string_view msg, std::ostream& out) {
-    report(msg, colored("[Warning] ", ansi_codes::yellow), out);
+    out << colored("[Warning] ", ansi_codes::yellow);
+    report(msg, out);
 }
 
 void internal_error(std::string_view msg, std::ostream& out) {
-    report(msg, colored("[Internal Error] ", ansi_codes::red), out);
+    out << colored("[Internal Error] ", ansi_codes::red);
+    report(msg, out);
 }
 
 } // namespace stc

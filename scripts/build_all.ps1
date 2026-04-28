@@ -13,13 +13,13 @@ if ($args -contains "--clean-first") {
 # if this is not the case and cl is in path, it can simply be added here
 # otherwise, msvc configs can also just be removed
 $configs = @(
-    @{ Name = "gcc-dbg";   Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Debug";   NoTidy = "ON";  Build = $true },
-    @{ Name = "gcc-rel";   Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Release"; NoTidy = "ON";  Build = $true },
-    @{ Name = "msvc-dbg";  Gen = "";      CC = "";      CXX = "";        Type = "Debug";   NoTidy = "ON";  Build = $true },
-    @{ Name = "msvc-rel";  Gen = "";      CC = "";      CXX = "";        Type = "Release"; NoTidy = "ON";  Build = $true },
-    @{ Name = "clang-dbg"; Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";   NoTidy = "ON";  Build = $true },
-    @{ Name = "clang-rel"; Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Release"; NoTidy = "ON";  Build = $true },
-    @{ Name = "gcc-tidy";  Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Debug";   NoTidy = "OFF"; Build = $true }
+    @{ Name = "gcc-dbg";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Debug";   NoTidy = "ON";  Build = $true },
+    @{ Name = "gcc-rel";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Release"; NoTidy = "ON";  Build = $true },
+    @{ Name = "msvc-dbg";    Gen = "";      CC = "";      CXX = "";        Type = "Debug";   NoTidy = "ON";  Build = $true },
+    @{ Name = "msvc-rel";    Gen = "";      CC = "";      CXX = "";        Type = "Release"; NoTidy = "ON";  Build = $true },
+    @{ Name = "clang-dbg";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";   NoTidy = "ON";  Build = $true },
+    @{ Name = "clang-rel";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Release"; NoTidy = "ON";  Build = $true },
+    @{ Name = "tidy";        Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";   NoTidy = "OFF"; Build = $true }
 )
 
 $build_timer = [System.Diagnostics.Stopwatch]::StartNew()

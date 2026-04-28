@@ -21,19 +21,18 @@ void print_locinfo(const SrcFile& file, SrcLocation location, std::ostream& out,
 
 namespace stc {
 
-void report(const SrcFile& file, SrcLocation location, std::string_view msg,
-            std::string_view prefix, std::ostream& out) {
+void report(const SrcFile& file, SrcLocation location, std::string_view msg, std::ostream& out) {
     // FEATURE: print code snippet
 
     print_locinfo(file, location, out);
-    return report(msg, prefix, out);
+    return report(msg, out);
 }
 
 void report(const SrcInfoPool& pool, SrcLocationId loc_id, std::string_view msg,
-            std::string_view prefix, std::ostream& out) {
+            std::ostream& out) {
 
     auto [loc, file] = pool.get_loc_and_file(loc_id);
-    return report(file, loc, msg, prefix, out);
+    return report(file, loc, msg, out);
 }
 
 void error(const SrcFile& file, SrcLocation location, std::string_view msg, std::ostream& out) {

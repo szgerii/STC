@@ -1,12 +1,13 @@
 #include "api/transpiler.h"
 
 #include "backend/glsl/code_gen.h"
+#include "backend/glsl/target_info.h"
+#include "frontend/jl/dumper.h"
 #include "frontend/jl/lowering.h"
 #include "frontend/jl/parser.h"
 #include "frontend/jl/sema.h"
-#include <backend/glsl/target_info.h>
-#include <frontend/jl/dumper.h>
-#include <sir/dumper.h>
+#include "meta.h"
+#include "sir/dumper.h"
 
 namespace stc::api {
 
@@ -76,10 +77,10 @@ MaybeString transpile_parsed(jl::NodeId jl_ast, jl::JLCtx& jl_ctx,
     return code_gen_vis.move_result();
 }
 
-template MaybeString transpile_parsed<true>(jl::NodeId, jl::JLCtx&,
-                                            detail::BenchmarkTracker<true>&);
-template MaybeString transpile_parsed<false>(jl::NodeId, jl::JLCtx&,
-                                             detail::BenchmarkTracker<false>&);
+template STC_API MaybeString transpile_parsed<true>(jl::NodeId, jl::JLCtx&,
+                                                    detail::BenchmarkTracker<true>&);
+template STC_API MaybeString transpile_parsed<false>(jl::NodeId, jl::JLCtx&,
+                                                     detail::BenchmarkTracker<false>&);
 
 template <bool RunBenchmark>
 MaybeString transpile(std::string_view code, std::optional<std::string_view> file_path,
@@ -122,10 +123,10 @@ MaybeString transpile(std::string_view code, std::optional<std::string_view> fil
     return transpile_parsed<RunBenchmark>(jl_ast, jl_ctx, benchmark_tracker);
 }
 
-template MaybeString transpile<true>(std::string_view, std::optional<std::string_view>,
-                                     stc::TranspilerConfig, std::string_view);
-template MaybeString transpile<false>(std::string_view, std::optional<std::string_view>,
-                                      stc::TranspilerConfig, std::string_view);
+template STC_API MaybeString transpile<true>(std::string_view, std::optional<std::string_view>,
+                                             stc::TranspilerConfig, std::string_view);
+template STC_API MaybeString transpile<false>(std::string_view, std::optional<std::string_view>,
+                                              stc::TranspilerConfig, std::string_view);
 
 template <bool RunBenchmark>
 MaybeString transpile(jl_value_t* expr_v, stc::TranspilerConfig config,
@@ -165,7 +166,87 @@ MaybeString transpile(jl_value_t* expr_v, stc::TranspilerConfig config,
     return transpile_parsed<RunBenchmark>(jl_ast, jl_ctx, benchmark_tracker);
 }
 
-template MaybeString transpile<true>(jl_value_t*, stc::TranspilerConfig, std::string_view);
-template MaybeString transpile<false>(jl_value_t*, stc::TranspilerConfig, std::string_view);
+template STC_API MaybeString transpile<true>(jl_value_t*, stc::TranspilerConfig, std::string_view);
+template STC_API MaybeString transpile<false>(jl_value_t*, stc::TranspilerConfig, std::string_view);
+
+namespace {
+
+std::string* do_transpile(jl_value_t* expr_v, bool run_benchmark, stc::TranspilerConfig& config) {
+    using namespace stc;
+    using namespace stc::jl;
+
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    auto get_failure_result = []() { return new std::string{}; };
+
+    if (!jl_is_expr(expr_v)) {
+        std::cerr << "received non-Expr value from Julia\n";
+        return get_failure_result();
+    }
+
+    std::optional<std::string> result = run_benchmark ? api::transpile<true>(expr_v, config)
+                                                      : api::transpile<false>(expr_v, config);
+
+    if (!result.has_value())
+        return get_failure_result();
+
+    // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+    return new std::string(std::move(*result));
+}
+
+} // namespace
+
+extern "C" {
+    STC_API uint8_t stc_abi_version() noexcept {
+        return stc::meta::version_major;
+    }
+
+    // ! this returns a handle ptr, which must be read through stc_jl_cstr_from_handle and destroyed
+    // ! with free_handle
+    STC_API void* stc_transpile(jl_value_t* expr_v, bool run_benchmark, void* cfg_handle) noexcept {
+        if (!jl_is_expr(expr_v)) {
+            std::cerr << "non-Expr julia object cannot be transpiled\n";
+            return nullptr;
+        }
+
+        try {
+
+            TranspilerConfig config = cfg_handle != nullptr
+                                          ? *(static_cast<TranspilerConfig*>(cfg_handle))
+                                          : TranspilerConfig{};
+
+            std::string* result_mem = do_transpile(expr_v, run_benchmark, config);
+            return static_cast<void*>(result_mem);
+
+        } catch (const std::exception& ex) {
+            std::cerr << "the following std::exception was thrown during transpilation:\n";
+            std::cerr << ex.what() << '\n';
+        } catch (...) {
+            std::cerr << "an unexpected error was thrown during transpilation\n";
+        }
+
+        return nullptr;
+    }
+
+    // gets the underlying C string data of a result handle
+    STC_API const char* stc_get_result(void* result_handle) noexcept {
+        if (result_handle == nullptr) {
+            std::cerr << "nullptr passed to stc_get_result\n";
+            return nullptr;
+        }
+
+        return static_cast<std::string*>(result_handle)->c_str();
+    }
+
+    // frees the underlying string data belonging to a result handle
+    STC_API void stc_free_result(void* result_handle) noexcept {
+        if (result_handle == nullptr) {
+            std::cerr << "nullptr passed to stc_free_result\n";
+            return;
+        }
+
+        // NOLINTNEXTLINE(cppcoreguidelines-owning-memory)
+        delete static_cast<std::string*>(result_handle);
+    }
+}
 
 } // namespace stc::api

@@ -1,8 +1,9 @@
 #pragma once
 
 #include <common/term_utils.h>
-#include <meta/version.h>
+#include <meta.h>
 
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <filesystem>
@@ -85,41 +86,44 @@ inline void print_help() {
     // clang-format on
 }
 
+template <size_t N>
+consteval auto n_chars_of(char sep) {
+    std::array<char, N> arr{};
+
+    for (size_t i = 0; i < N; i++)
+        arr[i] = sep;
+
+    return arr;
+}
+
 inline void print_version_info() {
     static constexpr auto val_col = ansi_codes::yellow;
 
-    std::string header{"       Shader Transpiler Core (STC)"};
-    std::string stc_ver{" v" STC_META_VERSION "        "};
+    static constexpr std::string_view title   = "Shader Transpiler Core (STC)";
+    static constexpr std::string_view stc_ver = stc::meta::version;
 
-    std::string sep(header.size() + stc_ver.size(), '-');
+    static constexpr uint8_t padding_width = 2;
+    static constexpr auto padding_buf      = n_chars_of<padding_width>(' ');
+    static constexpr auto padding = std::string_view{padding_buf.data(), padding_buf.size()};
 
-    std::cout << sep << '\n';
-    std::cout << header;
+    static constexpr size_t header_width = title.size() + 2 * padding_width + stc_ver.size() + 2;
 
-    std::cout << stc::colored(stc_ver, val_col) << '\n';
+    static constexpr auto sep_line_buf = n_chars_of<header_width>('-');
+    static constexpr auto sep_line     = std::string_view{sep_line_buf.data(), sep_line_buf.size()};
 
-    std::cout << sep << "\n\n";
+    std::cout << sep_line << '\n';
+    std::cout << padding << title << stc::colored(" v", val_col) << stc::colored(stc_ver, val_col)
+              << padding << '\n';
+    std::cout << sep_line << "\n\n";
 
     // clang-format off
-    std::cout << "target:         " << stc::colored(STC_META_SYSTEM_ARCH "-" STC_META_SYSTEM_NAME, val_col) << '\n';
-    std::cout << "compiler:       " << stc::colored(STC_META_COMPILER_ID " " STC_META_COMPILER_VERSION, val_col) << '\n';
-    std::cout << "build type:     " << stc::colored(STC_META_BUILD_TYPE, val_col) << '\n';
-    std::cout << "build commit:   " << stc::colored(STC_META_BUILD_COMMIT, val_col) << '\n';
-    std::cout << "julia compat:   " << stc::colored(STC_META_JULIA_VERSION, val_col) << '\n';
-    std::cout << "\n";
-    std::cout << "build date:     ";
+    std::cout << "target:         " << stc::colored(fmt::format("{}-{}", stc::meta::system_arch, stc::meta::system_name), val_col) << '\n';
+    std::cout << "compiler:       " << stc::colored(fmt::format("{} {}", stc::meta::compiler_id, stc::meta::compiler_ver), val_col) << '\n';
+    std::cout << "build type:     " << stc::colored(stc::meta::build_type, val_col) << '\n';
+    std::cout << "build commit:   " << stc::colored(stc::meta::build_commit, val_col) << '\n';
+    std::cout << "julia compat:   " << stc::colored(stc::meta::julia_ver, val_col) << '\n';
+    std::cout << "build date:     " << stc::colored(stc::meta::build_date, val_col) << '\n';
     // clang-format on
-
-    if (stc::TerminalInfo::supports_color())
-        std::cout << val_col;
-
-    std::cout << STC_META_BUILD_DATE << '\n';
-
-    if (stc::TerminalInfo::supports_color())
-        std::cout << ansi_codes::reset;
-
-    std::cout << "repo link:      " << stc::colored("https://github.com/szgerii/stc", val_col)
-              << '\n';
 }
 
 } // namespace stc::cli

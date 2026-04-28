@@ -1,4 +1,7 @@
-using BinaryBuilder, Pkg, Dates
+using BinaryBuilder
+using Pkg
+using Dates
+using LibGit2
 
 name = "stc"
 
@@ -8,12 +11,23 @@ version_match = match(r"project\([^ ]+ VERSION (\d+\.\d+\.\d+)\)", cmake_content
 if isnothing(version_match)
     error("could not strip VERSION from CMakeLists.txt file")
 end
-version = VersionNumber(version_match[1])
+base_ver = version_match[1]
+
+suffix_match = match(r"set\(STC_VERSION_SUFFIX\s*\"([^\"]*)\"\)", cmake_content)
+if isnothing(suffix_match)
+    error("could not strip STC_VERSION_SUFFIX from CmakeLists.txt file")
+end
+suffix = suffix_match[1]
+
+version = VersionNumber(isempty(suffix) ? base_ver : string(base_ver, '-', suffix))
 
 # try to grab git hash for versioning on the host itself
 git_hash = try
-    readchomp(`git rev-parse --short HEAD`)
+    repo = LibGit2.GitRepo(@__DIR__)
+    oid = LibGit2.head_oid(repo)
+    string(oid)[1:7]
 catch
+    println(stderr, "warning: couldn't open git repo at `$(@__DIR__)` to obtain the latest commit hash. the builds will use 'unknown' for it as metadata.")
     "unknown"
 end
 
@@ -28,12 +42,15 @@ end
 
 # create staging dir, so that local builds are possible without having to delete build and other unnecessary local folders
 staging_dir = mktempdir()
-for item in readdir(@__DIR__)
-    if item in [".git", ".vscode", ".vs", "build", "STC.jl"]
-        continue
+for item in ["include", "src", "cli", "CMakeLists.txt", "LICENSE"]
+    item_path = joinpath(@__DIR__, item)
+
+    # disallow symlinks explicitly (for now)
+    if !isfile(item_path) && !isdir(item_path)
+        error("couldn't locate file or directory required for building at '$item_path'")
     end
 
-    cp(item, joinpath(staging_dir, item))
+    cp(item_path, joinpath(staging_dir, item))
 end
 
 println("staging dir is $staging_dir")
@@ -60,7 +77,7 @@ cmake .. -DCMAKE_INSTALL_PREFIX=\${prefix} \\
          -DSTC_GIT_HASH=$git_hash \\
          -DSTC_BUILD_DATE=\"$build_date\" \\
          -DNO_DOCS=ON -DNO_SANDBOX=ON -DBUILD_TESTING=OFF \\
-         -DNO_SAN=ON -DNO_TIDY=ON
+         -DNO_SAN=ON -DNO_TIDY=ON -DNO_FORMAT=ON
 
 make -j\${nproc}
 make install
@@ -94,7 +111,7 @@ end
 platforms = expand_cxxstring_abis(platforms)
 
 dependencies = [
-    BuildDependency(PackageSpec(name="libjulia_jll", version="1.11.0")),
+    BuildDependency(PackageSpec(name="libjulia_jll", version="1.10.0")),
     Dependency("Fmt_jll")
 ]
 

@@ -81,8 +81,6 @@ public:
     [[nodiscard]]
     std::pair<SrcLocation, const SrcFile&> get_loc_and_file(SrcLocationId loc_id) const;
 
-    [[nodiscard]] SrcLocationId null_loc() const;
-
 private:
     ArenaTy arena;
     ArenaAllocTy arena_alloc;
@@ -93,7 +91,7 @@ private:
 };
 
 void report(const SrcInfoPool& pool, SrcLocationId loc_id, std::string_view msg,
-            std::string_view prefix = ""sv, std::ostream& out = std::cerr);
+            std::ostream& out = std::cerr);
 void error(const SrcInfoPool& pool, SrcLocationId loc_id, std::string_view msg,
            std::ostream& out = std::cerr);
 void warning(const SrcInfoPool& pool, SrcLocationId loc_id, std::string_view msg,

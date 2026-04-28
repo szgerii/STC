@@ -4,11 +4,11 @@ include(FetchContent)
 
 # Version info
 
-project(ShaderTranspilerCore VERSION 0.7.0)
-set(STC_VERSION_SUFFIX "")
-set(STC_SOVERSION "0") # for lib ABI-compatibility
+project(ShaderTranspilerCore VERSION 1.0.0)
+set(STC_VERSION_SUFFIX "alpha")
+set(STC_SOVERSION PROJECT_VERSION_MAJOR) # ! ABI version is linked to semver's major version
 
-set(STC_VERSION "${PROJECT_VERSION}${STC_VERSION_SUFFIX}")
+set(STC_VERSION "${PROJECT_VERSION}-${STC_VERSION_SUFFIX}")
 
 if (NOT DEFINED STC_GIT_HASH)
     find_package(Git QUIET)
@@ -41,6 +41,7 @@ endif()
 option(FETCH_CATCH2 "Force fetching Catch2 from the github repo, even if it's installed locally" OFF)
 option(NO_CCACHE "Disable compiler caching through ccache, even if it's installed locally" OFF)
 option(NO_TIDY "Disable static analysis through clang-tidy, even if it's installed locally" OFF)
+option(NO_FORMAT "Disable inclusion of clang-format, even if it's installed locally" OFF)
 option(NO_SANDBOX "Disable sandbox targets" OFF)
 option(NO_SAN "Disable address and undefined sanitizers (ASan and UBSan). Might be required with some versions of Julia" OFF)
 option(NO_DOCS "Disable any docs-related targets." OFF)
@@ -139,7 +140,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -148,16 +148,11 @@ set(BIN_OUTPUT_DIR ${CMAKE_BINARY_DIR}/bin)
 set(TEST_OUTPUT_DIR ${CMAKE_BINARY_DIR}/test)
 
 configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/include/meta/version.h.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/meta/version.h"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/meta.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/meta.h"
 )
 
 file(GLOB_RECURSE ALL_SOURCES CONFIGURE_DEPENDS "include/*.h" "src/*.cpp" "cli/*.h" "cli/*.cpp" "sandbox/*.cpp" "sandbox/*.h" "test/*.cpp" "test/*.h")
-
-set(LIB_SOURCES ${ALL_SOURCES})
-list(FILTER LIB_SOURCES EXCLUDE REGEX "sandbox/.*")
-list(FILTER LIB_SOURCES EXCLUDE REGEX "test/.*")
-list(FILTER LIB_SOURCES EXCLUDE REGEX "cli/.*")
 
 # fmt
 
@@ -206,32 +201,36 @@ endif()
 
 # clang-format
 
-find_program(CLANG_FORMAT_EXEC NAMES clang-format)
-if (CLANG_FORMAT_EXEC)
-    # style checking
-    add_custom_target(
-        "check_format"
-        COMMAND ${CLANG_FORMAT_EXEC}
-                -style=file
-                -n
-                --Werror
-                ${ALL_SOURCES}
-        COMMENT "Checking C++ code style..."
-    )
+if (NOT NO_FORMAT)
+    find_program(CLANG_FORMAT_EXEC NAMES clang-format)
+    if (CLANG_FORMAT_EXEC)
+        # style checking
+        add_custom_target(
+            "check_format"
+            COMMAND ${CLANG_FORMAT_EXEC}
+                    -style=file
+                    -n
+                    --Werror
+                    ${ALL_SOURCES}
+            COMMENT "Checking C++ code style..."
+        )
 
-    # automatic style enforcement
-    add_custom_target(
-        "fix_format"
-        COMMAND ${CLANG_FORMAT_EXEC}
-                -style=file
-                -i
-                ${ALL_SOURCES}
-        COMMENT "Fixing C++ code style..."
-    )
+        # automatic style enforcement
+        add_custom_target(
+            "fix_format"
+            COMMAND ${CLANG_FORMAT_EXEC}
+                    -style=file
+                    -i
+                    ${ALL_SOURCES}
+            COMMENT "Fixing C++ code style..."
+        )
 
-    message(STATUS "clang-format found, check_format and fix_format targets enabled. Using ${CLANG_FORMAT_EXEC}")
+        message(STATUS "clang-format found, check_format and fix_format targets enabled. Using ${CLANG_FORMAT_EXEC}")
+    else()
+        message(STATUS "clang-format could not be located, code style checking won't be possible.")
+    endif()
 else()
-    message(STATUS "clang-format could not be located, code style checking won't be possible.")
+    message(STATUS "clang-format disabled explicitly")
 endif()
 
 # clang-tidy
@@ -244,6 +243,7 @@ if (NOT NO_TIDY)
 
         list(APPEND CLANG_TIDY_CMD "--extra-arg=-Wno-unknown-warning-option")
         list(APPEND CLANG_TIDY_CMD "--header-filter=^${CMAKE_SOURCE_DIR}/*.h")
+        list(APPEND CLANG_TIDY_CMD "--extra-arg=-Qunused-arguments")
 
         if (MSVC)
             list(APPEND CLANG_TIDY_CMD "--extra-arg-before=--driver-mode=cl")
@@ -262,9 +262,6 @@ endif()
 
 add_library(CommonConfig INTERFACE)
 
-# TODO: use symbol hiding by default, once the lib API is in a semi-stable state
-# it would also be nice to side step potential issues with this for sandboxes
-
 if (MSVC)
     # apparently MSVC preprocessor is not standard-confirming by default
     # /Zc:preprocessor needed for X-macro system (__VA_ARGS__ expansion)
@@ -280,8 +277,13 @@ else()
     target_compile_options(CommonConfig INTERFACE
         -Wall -Wextra -Wpedantic -Wconversion -Wreorder
         -fno-rtti
+        -fvisibility=hidden
         $<$<CONFIG:RelWithDebInfo>:-g -fno-omit-frame-pointer>
-        # $<$<NOT:$<CONFIG:Debug>>:-fvisibility=hidden>
+    )
+
+    target_link_options(CommonConfig INTERFACE
+        $<$<CONFIG:Release>:-Wl,-s>
+        $<$<CONFIG:MinSizeRel>:-Wl,-s>
     )
 
     if (MINGW)
@@ -303,15 +305,25 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT NO_SAN)
 
         target_link_options(CommonConfig INTERFACE "/INCREMENTAL:NO")
         message(STATUS "ASan enabled for MSVC (detected ${CMAKE_SYSTEM_NAME})")
-    elseif (UNIX)
+    else()
         target_compile_options(CommonConfig INTERFACE
             -fsanitize=address,undefined -fno-omit-frame-pointer -g
         )
 
         target_link_options(CommonConfig INTERFACE -fsanitize=address,undefined)
         message(STATUS "ASan and UBSan enabled for GCC/Clang/etc (detected ${CMAKE_SYSTEM_NAME})")
-    else()
-        message(STATUS "ASan not supported on the host system (${CMAKE_SYSTEM_NAME})")
+    endif()
+endif()
+
+# link time optimization
+
+if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT lto_supported)
+    if (lto_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL ON)
+        message(STATUS "LTO enabled for release builds")
     endif()
 endif()
 
@@ -319,23 +331,28 @@ endif()
 
 file(GLOB_RECURSE LIB_HEADERS CONFIGURE_DEPENDS "include/*.h")
 
-set(LIB_TARGET stc)
+set(LIB_SOURCES ${ALL_SOURCES})
+list(FILTER LIB_SOURCES EXCLUDE REGEX "sandbox/.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "test/.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "cli/.*")
 
-add_library(${LIB_TARGET} SHARED ${LIB_SOURCES})
+set(LIBSTC_TARGET stc)
+add_library(${LIBSTC_TARGET} SHARED ${LIB_SOURCES})
 
-target_include_directories(${LIB_TARGET} PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(${LIB_TARGET} PUBLIC  ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_include_directories(${LIB_TARGET} SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
+target_include_directories(${LIBSTC_TARGET} PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${LIBSTC_TARGET} PUBLIC  ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_include_directories(${LIBSTC_TARGET} SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
 
-target_link_libraries(${LIB_TARGET} PRIVATE CommonConfig)
-target_link_libraries(${LIB_TARGET} PRIVATE ${JULIA_LIB})
-target_link_libraries(${LIB_TARGET} PRIVATE fmt::fmt)
+target_link_libraries(${LIBSTC_TARGET} PRIVATE CommonConfig ${JULIA_LIB} fmt::fmt)
+target_compile_definitions(${LIBSTC_TARGET} PRIVATE STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
 
-target_compile_definitions(${LIB_TARGET} PRIVATE STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
-
-set_target_properties(${LIB_TARGET} PROPERTIES
+set_target_properties(${LIBSTC_TARGET} PROPERTIES
     VERSION                                 ${PROJECT_VERSION}
     SOVERSION                               ${STC_SOVERSION}
+
+    CXX_VISIBILITY_PRESET                   hidden
+    C_VISIBILITY_PRESET                     hidden
+    VISIBILITY_INLINES_HIDDEN               ON
 
     LIBRARY_OUTPUT_DIRECTORY                ${LIB_OUTPUT_DIR}
     ARCHIVE_OUTPUT_DIRECTORY                ${LIB_OUTPUT_DIR}
@@ -352,7 +369,7 @@ set_target_properties(${LIB_TARGET} PROPERTIES
 )
 
 if (DEFINED CLANG_TIDY_CMD AND NOT NO_TIDY)
-    set_target_properties(${LIB_TARGET} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_CMD}")
+    set_target_properties(${LIBSTC_TARGET} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_CMD}")
 endif()
 
 # CLI
@@ -360,7 +377,11 @@ endif()
 if (NOT NO_CLI)
     set(CLI_TARGET stc_cli)
 
-    add_executable(${CLI_TARGET} "cli/cli.cpp")
+    add_executable(${CLI_TARGET}
+        "cli/cli.cpp"
+        "src/common/term_utils.cpp"
+        "src/common/utils.cpp"
+    )
 
     # set_target_properties(${CLI_TARGET} PROPERTIES OUTPUT_NAME "stc")
 
@@ -371,7 +392,7 @@ if (NOT NO_CLI)
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${BIN_OUTPUT_DIR}
     )
 
-    target_link_libraries(${CLI_TARGET} PRIVATE ${LIB_TARGET} CommonConfig ${JULIA_LIB})
+    target_link_libraries(${CLI_TARGET} PRIVATE ${LIBSTC_TARGET} CommonConfig ${JULIA_LIB})
     target_link_libraries(${CLI_TARGET} PRIVATE fmt::fmt)
 
     target_include_directories(${CLI_TARGET} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -386,7 +407,7 @@ if (NOT NO_CLI)
     if (WIN32)
         add_custom_command(TARGET ${CLI_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:${LIB_TARGET}>
+            $<TARGET_FILE:${LIBSTC_TARGET}>
             $<TARGET_FILE_DIR:${CLI_TARGET}>
         )
     endif()
@@ -430,7 +451,7 @@ if (BUILD_TESTING)
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${TEST_OUTPUT_DIR}
     )
 
-    target_link_libraries(unit_tests PRIVATE ${LIB_TARGET} Catch2::Catch2WithMain CommonConfig)
+    target_link_libraries(unit_tests PRIVATE ${LIBSTC_TARGET} Catch2::Catch2WithMain CommonConfig)
     target_include_directories(unit_tests PRIVATE include)
     target_include_directories(unit_tests SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
 
@@ -438,7 +459,7 @@ if (BUILD_TESTING)
     if (WIN32)
         add_custom_command(TARGET unit_tests POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:${LIB_TARGET}>
+            $<TARGET_FILE:${LIBSTC_TARGET}>
             $<TARGET_FILE_DIR:unit_tests>
         )
     endif()
@@ -547,7 +568,7 @@ if (NOT NO_SANDBOX)
             RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${BIN_OUTPUT_DIR}
         )
 
-        target_link_libraries(${FNAME} PRIVATE ${LIB_TARGET} CommonConfig)
+        target_link_libraries(${FNAME} PRIVATE ${LIBSTC_TARGET} CommonConfig)
         target_link_libraries(${FNAME} PRIVATE ${JULIA_LIB})
         target_link_libraries(${FNAME} PRIVATE fmt::fmt)
 
@@ -563,7 +584,7 @@ if (NOT NO_SANDBOX)
         if (WIN32)
             add_custom_command(TARGET ${FNAME} POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_FILE:${LIB_TARGET}>
+                $<TARGET_FILE:${LIBSTC_TARGET}>
                 $<TARGET_FILE_DIR:${FNAME}>
             )
         endif()
@@ -584,7 +605,7 @@ endif()
 
 include(GNUInstallDirs)
 
-install(TARGETS ${LIB_TARGET}
+install(TARGETS ${LIBSTC_TARGET}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}

@@ -118,34 +118,6 @@ Doxygen is used for automatic documentation generation, both in HTML and LaTeX f
 
 The documentation parameters are currently too verbose. As the project grows and it becomes clearer what features are actually useful, I will try to filter out pointless fluff options. Also, since the code currently lacks comment annotations, the docs themselves are not too helpful, except for their diagrams.
 
-## Dependency build caching
-
-Dependencies acquired from FetchContent are cached in `_deps_<PLATFORM>` directories when they are first built. This ensures that later (re)builds don't need to perform an entire build of external dependencies every time. The reason for separate directories based on the development platform is to be able to create and maintain a build directory for both, for example, Windows and WSL during development. See the example below.
-
-Currently, this only affects Catch2 building.
-
-Take a regular Windows/WSL setup, both of their command lines open in the same directory (a clone of this repo). The following command sequences, executed in any interleaved order, will never conflict, and both of them will compile Catch2 exactly one time, once for Windows and once for Linux. Deleting the build directories and performing another build doesn't invalidate external dependencies.
-
-On Windows:
-
-```powershell
-cmake -B build_win
-cmake --build build_win
-rm -R -Force build_win
-cmake -B build_win
-cmake --build build_win
-```
-
-On WSL (or in a dual-booted linux system):
-
-```bash
-cmake -B build_linux
-cmake --build build_linux
-rm -rf build_linux
-cmake -B build_linux
-cmake --build build_linux
-```
-
 ## CMake options
 
 Here is the list of CMake options available for customizing configuration:

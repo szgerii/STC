@@ -175,11 +175,12 @@ int run(int argc, char* argv[]) {
     }
 
     if (no_out && !out_path.empty()) {
-        warning(fmt::format("conflicting flags have been provided as arguments: '{}' and '{} {}'.\n"
-                            "no output will be created after transpilation.\n",
-                            stc::colored("--no-out", ansi_codes::cyan),
-                            stc::colored("-o", ansi_codes::cyan),
-                            stc::colored(out_path, ansi_codes::cyan)));
+        std::cerr << stc::colored("warning: ", ansi_codes::yellow)
+                  << "conflicting flags have been provided as arguments: "
+                  << stc::colored("--no-out", ansi_codes::cyan) << " and "
+                  << stc::colored("-o", ansi_codes::cyan) << ' '
+                  << stc::colored(out_path, ansi_codes::cyan) << ", "
+                  << "no output will be created after transpilation.\n";
     }
 
     std::ifstream file(path);
@@ -214,7 +215,7 @@ int run(int argc, char* argv[]) {
     const ScopeGuard jl_guard{[&]() { jl_atexit_hook(0); }};
 
     for (size_t i = 0; i < ite_count; i++) {
-        if (ite_count != 1) {
+        if (run_benchmark && ite_count != 1) {
             std::string header_title{fmt::format("  Transpilation #{}  ", i + 1)};
             std::string sep(header_title.size(), '=');
 
@@ -269,10 +270,10 @@ int main(int argc, char* argv[]) {
     try {
         return stc::cli::run(argc, argv);
     } catch (const std::exception& ex) {
-        std::cerr << "an unexpected error occured while running STC:\n";
+        std::cerr << "an unexpected error occured while running stc:\n";
         std::cerr << ex.what() << '\n';
     } catch (...) {
-        std::cerr << "an unexpected error occured while running STC\n";
+        std::cerr << "an unexpected error occured while running stc\n";
     }
 
     return 1;

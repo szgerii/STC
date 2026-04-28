@@ -31,13 +31,26 @@ public:
     static bool supports_color();
 };
 
-inline std::string colored(std::string text, std::string_view color) {
-    if (TerminalInfo::supports_color()) {
-        text.insert(0, color);
-        text.append(ansi_codes::reset);
-    }
+// wrapper to avoid string allocation
+struct ColoredText {
+    std::string_view text;
+    std::string_view color_code;
 
-    return text;
+    friend std::ostream& operator<<(std::ostream& out, const ColoredText& ct) {
+        if (TerminalInfo::supports_color())
+            out << ct.color_code;
+
+        out << ct.text;
+
+        if (TerminalInfo::supports_color())
+            out << ansi_codes::reset;
+
+        return out;
+    }
+};
+
+inline constexpr ColoredText colored(std::string_view text, std::string_view color) {
+    return {text, color};
 }
 
 } // namespace stc
