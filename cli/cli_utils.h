@@ -56,9 +56,10 @@ inline void print_help() {
     std::cout << stc::colored("transpilation behavior:\n", title_col);
     std::cout << "  " << stc::colored("--conv-fail-reason", flag_col)   << "   print reason for conversion/casting failures\n";
     std::cout << "  " << stc::colored("--no-coerce-i32",    flag_col)   << "      disable automatic Int64 -> Int32 literal type coercion\n";
-    std::cout << "  " << stc::colored("--no-coerce-f32",    flag_col)   << "      disable automatic Float64 -> Float32 literal type coercion\n";
-    std::cout << "  " << stc::colored("--no-coercion",      flag_col)   << "        disable all literal type coercion\n";
-    std::cout << "  " << stc::colored("--fwd-fns",          flag_col)   << "            enable blind forwarding for non-backend-resolvable function calls (may lead to invalid code)\n";
+    std::cout << "  " << stc::colored("--no-coerce-f32",      flag_col)   << "      disable automatic Float64 -> Float32 literal type coercion\n";
+    std::cout << "  " << stc::colored("--no-coercion",        flag_col)   << "        disable all literal type coercion\n";
+    std::cout << "  " << stc::colored("--fwd-fns",            flag_col)   << "            enable blind forwarding for non-backend-resolvable function calls (may lead to invalid code)\n";
+    std::cout << "  " << stc::colored("--no-uniform-capture", flag_col)   << "  capture Julia-resolvable globals as uniforms in the generated code\n";
     std::cout << '\n';
     
     std::cout << stc::colored("debugging:\n", title_col);

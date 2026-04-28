@@ -23,6 +23,7 @@ struct TranspilerConfig {
     bool track_bindings              = false;
     bool coerce_to_f32               = true;
     bool coerce_to_i32               = true;
+    bool capture_uniforms            = true;
     bool dump_parsed                 = false;
     bool dump_sema                   = false;
     bool dump_lowered                = false;

@@ -92,7 +92,9 @@ int run(int argc, char* argv[]) {
         else if (arg == "--no-coercion") {
             config.coerce_to_i32 = false;
             config.coerce_to_f32 = false;
-        } else if (arg == "-Wfwd-fns")
+        } else if (arg == "--no-uniform-capture")
+            config.capture_uniforms = false;
+        else if (arg == "-Wfwd-fns")
             config.warn_on_fn_forward = true;
         else if (arg == "-Wjl-query")
             config.warn_on_jl_sema_query = true;

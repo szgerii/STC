@@ -15,6 +15,7 @@ namespace stc::jl {
 class JLSema : public JLVisitor<JLSema, JLCtx, TypeId> {
     TypePool& tpool;
     std::deque<JLScope> scopes;
+    std::vector<NodeId> captured_uniforms{};
     TypeToJLVisitor type_to_jl;
 
     NodeId main_fn_decl        = NodeId::null_id();
@@ -26,7 +27,7 @@ class JLSema : public JLVisitor<JLSema, JLCtx, TypeId> {
     bool visiting_method_body  = false;
     bool visiting_indexer      = false;
     bool allow_pretyped_nodes  = false;
-    bool in_interactive_ctx;
+    bool in_interactive_ctx    = false;
 
 public:
     explicit JLSema(JLCtx& ctx, CompoundExpr& global_scope_body, bool in_interactive_ctx = false)

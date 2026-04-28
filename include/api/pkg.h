@@ -37,6 +37,7 @@ extern "C" {
     STC_API void stc_jl_set_track_bindings(void* cfg_handle, bool value) noexcept;
     STC_API void stc_jl_set_coerce_to_f32(void* cfg_handle, bool value) noexcept;
     STC_API void stc_jl_set_coerce_to_i32(void* cfg_handle, bool value) noexcept;
+    STC_API void stc_jl_set_capture_uniforms(void* cfg_handle, bool value) noexcept;
     STC_API void stc_jl_set_dump_parsed(void* cfg_handle, bool value) noexcept;
     STC_API void stc_jl_set_dump_sema(void* cfg_handle, bool value) noexcept;
     STC_API void stc_jl_set_dump_lowered(void* cfg_handle, bool value) noexcept;

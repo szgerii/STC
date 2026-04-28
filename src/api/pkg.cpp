@@ -160,6 +160,10 @@ extern "C" {
         STC_SET_CFG_VALUE(cfg_handle, coerce_to_i32, value);
     }
 
+    STC_API void stc_jl_set_capture_uniforms(void* cfg_handle, bool value) noexcept {
+        STC_SET_CFG_VALUE(cfg_handle, capture_uniforms, value);
+    }
+
     STC_API void stc_jl_set_dump_parsed(void* cfg_handle, bool value) noexcept {
         STC_SET_CFG_VALUE(cfg_handle, dump_parsed, value);
     }

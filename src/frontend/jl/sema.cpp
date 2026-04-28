@@ -138,6 +138,9 @@ void JLSema::finalize() {
 
     assert(&current_scope() == &global_scope());
 
+    auto& body = current_scope().body.body;
+    body.insert(body.begin(), captured_uniforms.begin(), captured_uniforms.end());
+
     if (!main_fn_decl.is_null()) {
         const auto* main_fn = ctx.get_and_dyn_cast<FunctionDecl>(main_fn_decl);
         assert(main_fn != nullptr);
@@ -1768,11 +1771,11 @@ NodeId JLSema::resolve_sym_with_binding(SymbolId sym, BindingType bt, const Expr
         }
     }
 
+    std::string_view sym_str = ctx.get_sym(sym);
+
     if (is_global && tpool.is_any_func(expected_type)) {
         // TODO
         // builtins hide calls to jl fns, if they'd have a valid match, while the builtin doesnt
-
-        auto sym_str = ctx.get_sym(sym);
 
         // try to resolve through builtins first
         if (ctx.target_info != nullptr && ctx.target_info->has_builtin_fn(sym_str)) {
@@ -1839,7 +1842,9 @@ TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
                               *sym);
     }
 
-    NodeId decl = resolve_sym_with_binding(sym->value, *maybe_bt, dre);
+    BindingType bt = *maybe_bt;
+
+    NodeId decl = resolve_sym_with_binding(sym->value, bt, dre);
     if (!decl.is_null()) {
         assert(ctx.get_node(decl) != nullptr);
 
@@ -1847,15 +1852,61 @@ TypeId JLSema::visit_DeclRefExpr(DeclRefExpr& dre) {
         return ctx.get_node(decl)->type;
     }
 
-    if (*maybe_bt == BindingType::Captured) {
+    if (bt == BindingType::Captured) {
         return fail(
             fmt::format("forward capture of symbol '{}' is not allowed", ctx.get_sym(sym->value)),
             dre);
     }
 
-    return fail(fmt::format("use of undeclared or uninitialized symbol '{}' (binding type: {})",
-                            ctx.get_sym(sym->value), bt_str(*maybe_bt)),
+    auto report_undef = [&]() {
+        return fail(fmt::format("use of undeclared or uninitialized symbol '{}' (binding type: {})",
+                                ctx.get_sym(sym->value), bt_str(*maybe_bt)),
+                    dre);
+    };
+
+    // uniform capture
+    if (ctx.config.capture_uniforms && bt == BindingType::Global) {
+        auto sym_str = ctx.get_sym(sym->value);
+
+        jl_value_t* glob = jl_get_global(ctx.jl_env.module_cache.main_mod,
+                                         jl_symbol_n(sym_str.data(), sym_str.size()));
+        if (glob == nullptr)
+            return report_undef();
+
+        jl_value_t* glob_ty_v = jl_typeof(glob);
+        if (!jl_is_datatype(glob_ty_v))
+            return report_undef();
+
+        TypeId glob_ty = parse_jl_type(safe_cast<jl_datatype_t>(glob_ty_v), ctx);
+        if (glob_ty.is_null())
+            return report_undef();
+
+        const auto& glob_td = tpool.get_td(glob_ty);
+
+        bool capture_as_uniform = glob_td.is_scalar() || glob_td.is_vector() || glob_td.is_matrix();
+
+        if (capture_as_uniform) {
+            QualId qid             = ctx.qual_pool.emplace({QualKind::tq_uniform}, {}).first;
+            auto [vdecl_id, vdecl] = ctx.emplace_node<VarDecl>(dre.location, sym->value, glob_ty,
+                                                               MaybeScopeType::Global);
+            vdecl->qualifiers      = qid;
+            infer(vdecl_id);
+
+            captured_uniforms.emplace_back(vdecl_id);
+
+            dre.decl = vdecl_id;
+            return vdecl->type;
+        } else {
+            return fail(
+                fmt::format(
+                    "found binding for symbol '{}' through Julia in the global scope, but uniform "
+                    "capturing does not support its type: {}",
+                    sym_str, type_str(glob_ty)),
                 dre);
+        }
+    }
+
+    return report_undef();
 }
 
 TypeId JLSema::visit_Assignment(Assignment& assign) {
