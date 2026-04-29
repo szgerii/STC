@@ -43,5 +43,6 @@ function main()
         col = mix(col, vec3(1, 1, 0), 1.0 - smoothstep(0.0, 0.005, length(p - m) - 0.015))
     end
 
+    global frag_col
     frag_col = vec4(col, 1)
 end

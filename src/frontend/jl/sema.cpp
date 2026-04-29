@@ -599,6 +599,48 @@ TypeId JLSema::visit_VarDecl(VarDecl& vdecl) {
             vdecl);
     }
 
+    if (!vdecl.is_builtin() && ctx.target_info != nullptr &&
+        ctx.target_info->has_builtin_global(ctx.get_sym(vdecl.identifier))) {
+        return fail(fmt::format("explicit declaration for builtin global '{}' is not allowed",
+                                ctx.get_sym(vdecl.identifier)),
+                    vdecl);
+    }
+
+    // explicitly allow 'global var_name'-like expressions to bind to global scope
+    bool is_global_signal = !vdecl.is_builtin() && actual_st == ScopeType::Global &&
+                            vdecl.initializer.is_null() && (&current_scope() != &global_scope());
+
+    if (is_global_signal) {
+        if (!global_scope().st_contains(vdecl.identifier)) {
+            return fail(fmt::format("trying to bind symbol '{}' to an undeclared global binding",
+                                    ctx.get_sym(vdecl.identifier)),
+                        vdecl);
+        }
+
+        NodeId glob_decl_id = global_scope().st_find_sym(vdecl.identifier);
+        Expr* glob_decl     = ctx.get_node(glob_decl_id);
+        assert(glob_decl != nullptr);
+
+        if (glob_decl->type.is_null())
+            return internal_error("found unresolved declaration in symbol table", *glob_decl);
+
+        if (!vdecl.annot_type.is_null()) {
+            TypeCheckResult tcr = check_type_against(vdecl.annot_type, glob_decl->type, vdecl);
+
+            if (tcr != TypeCheckResult::Match) {
+                return fail(fmt::format("invalid type in local binding for global symbol '{}' "
+                                        "(expected {}, got {})",
+                                        ctx.get_sym(vdecl.identifier), type_str(glob_decl->type),
+                                        type_str(vdecl.annot_type)),
+                            vdecl);
+            }
+        }
+
+        vdecl.set_is_silent_decl(true);
+
+        return glob_decl->type;
+    }
+
     // TODO: lazy infer declared var type
     if (!has_type && !has_init)
         return fail("variable declaration without neither a type annotation, or an initializer is "
@@ -1761,7 +1803,7 @@ NodeId JLSema::resolve_sym_with_binding(SymbolId sym, BindingType bt, const Expr
         if (!glob_ty.is_null()) {
             NodeId builtin_decl =
                 ctx.emplace_node<VarDecl>(base_expr.location, sym, glob_ty, ScopeType::Global,
-                                          NodeId::null_id(), true)
+                                          NodeId::null_id(), true, false)
                     .first;
 
             infer(builtin_decl);

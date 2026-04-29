@@ -11,12 +11,12 @@ namespace stc::api {
 extern "C" {
     STC_API void* stc_create_cfg() noexcept;
     STC_API void stc_free_cfg(void* cfg_handle) noexcept;
-    STC_API void stc_set_code_gen_indent(void* cfg_handle, uint16_t value) noexcept;
-    STC_API void stc_set_dump_indent(void* cfg_handle, uint16_t value) noexcept;
 
     // 0 - None, 1 - Partial, 2 - Verbose
     STC_API void stc_set_err_dump_verbosity(void* cfg_handle, uint8_t value) noexcept;
 
+    STC_API void stc_set_code_gen_indent(void* cfg_handle, uint16_t value) noexcept;
+    STC_API void stc_set_dump_indent(void* cfg_handle, uint16_t value) noexcept;
     STC_API void stc_set_use_tabs(void* cfg_handle, bool value) noexcept;
     STC_API void stc_set_dump_scopes(void* cfg_handle, bool value) noexcept;
     STC_API void stc_set_forward_fns(void* cfg_handle, bool value) noexcept;

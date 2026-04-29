@@ -34,7 +34,7 @@ enum class ScopeType : uint8_t { Global, Local };
 
 // it's good to have this separate for AST nodes, which may or may not specify a scope (e.g. var
 // decls), but not force checking for unspec in sema helpers, where it shouldn't ever be unspec
-enum class MaybeScopeType : uint8_t { Global, Local, Unspec };
+enum class MaybeScopeType : uint8_t { Global = 0, Local, Unspec };
 
 static_assert(static_cast<uint8_t>(MaybeScopeType::Global) ==
               static_cast<uint8_t>(ScopeType::Global));
@@ -160,32 +160,42 @@ struct VarDecl : public Decl {
 
     explicit VarDecl(SrcLocationId location, SymbolId identifier, TypeId annot_type,
                      MaybeScopeType scope, NodeId initializer = NodeId::null_id(),
-                     bool is_builtin = false)
+                     bool is_builtin = false, bool is_silent_decl = false)
         : Decl{location, NodeKind::VarDecl, identifier,
                static_cast<uint8_t>(static_cast<uint8_t>(scope) |
-                                    static_cast<uint8_t>(is_builtin << 7))},
+                                    static_cast<uint8_t>(is_builtin << 7) |
+                                    static_cast<uint8_t>(is_silent_decl << 6))},
           annot_type{annot_type},
           initializer{initializer} {}
 
     explicit VarDecl(SrcLocationId location, SymbolId identifier, TypeId annot_type,
                      ScopeType scope, NodeId initializer = NodeId::null_id(),
-                     bool is_builtin = false)
-        : VarDecl{location, identifier, annot_type, st_to_mst(scope), initializer, is_builtin} {}
+                     bool is_builtin = false, bool is_silent_decl = false)
+        : VarDecl{location,    identifier, annot_type,    st_to_mst(scope),
+                  initializer, is_builtin, is_silent_decl} {}
 
     MaybeScopeType scope() const {
-        return static_cast<MaybeScopeType>(0b01111111 & node_storage());
+        return static_cast<MaybeScopeType>(0b00111111 & node_storage());
     }
 
     void set_scope(MaybeScopeType value) {
-        _node_storage = (_node_storage & (1U << 7)) | static_cast<uint8_t>(value);
+        _node_storage = (_node_storage & ((1U << 7) | (1U << 6))) | static_cast<uint8_t>(value);
     }
 
-    bool is_builtin() const { return static_cast<bool>(node_storage() >> 7); }
+    bool is_builtin() const { return static_cast<bool>(0x01 & (node_storage() >> 7)); }
     void set_is_builtin(bool value) {
         if (value)
             _node_storage |= (1U << 7);
         else
             _node_storage &= static_cast<uint8_t>(~(1U << 7));
+    }
+
+    bool is_silent_decl() const { return static_cast<bool>(0x01 & (node_storage() >> 6)); }
+    void set_is_silent_decl(bool value) {
+        if (value)
+            _node_storage |= (1U << 6);
+        else
+            _node_storage &= static_cast<uint8_t>(~(1U << 6));
     }
 
     SAME_NODE_KIND_DEF(NodeKind::VarDecl)

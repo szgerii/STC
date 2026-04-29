@@ -107,12 +107,16 @@ void JLDumper::visit_VarDecl(VarDecl& var) {
     out << indent() << "VarDecl (" << mst_str(var.scope()) << "): " << sym(var.identifier) << " ("
         << (!var.annot_type.is_null() ? type_str(var.annot_type) : "unannotated") << ")\n";
 
-    if (!var.initializer.is_null()) {
-        out << indent() << dump_label("initializer");
-        inc_indent();
+    out << indent() << "is builtin: " << (var.is_builtin() ? "yes\n" : "no\n");
+    out << indent() << "is silent decl: " << (var.is_silent_decl() ? "yes\n" : "no\n");
+
+    out << indent() << dump_label("initializer");
+    inc_indent();
+    if (!var.initializer.is_null())
         visit(var.initializer);
-        dec_indent();
-    }
+    else
+        out << indent() << "-\n";
+    dec_indent();
 }
 
 void JLDumper::visit_MethodDecl(MethodDecl& mdecl) {

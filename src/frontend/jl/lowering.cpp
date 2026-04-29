@@ -44,11 +44,11 @@ SIRNodeId JLLoweringVisitor::internal_error(std::string_view msg) {
     return SIRNodeId::null_id();
 }
 
-SIRNodeId JLLoweringVisitor::visit_and_check(NodeId id) {
+SIRNodeId JLLoweringVisitor::visit_and_check(NodeId id, bool accept_null) {
     SIRNodeId result = visit(id);
 
     if (result.is_null()) {
-        if (_success)
+        if (!accept_null && _success)
             internal_error("null_id returned by a node in the Julia -> SIR lowering visitor.");
 
         return SIRNodeId::null_id();
@@ -187,6 +187,9 @@ SIRNodeId JLLoweringVisitor::lower(NodeId global_cmpd_id) {
 }
 
 SIRNodeId JLLoweringVisitor::visit_VarDecl(VarDecl& var) {
+    if (var.is_silent_decl())
+        return SIRNodeId::null_id();
+
     swap_lower_type(var.annot_type);
 
     SIRNodeId init =
@@ -308,8 +311,22 @@ SIRNodeId JLLoweringVisitor::visit_CompoundExpr(CompoundExpr& cmpd) {
     std::vector<SIRNodeId> sir_nodes;
     sir_nodes.reserve(cmpd.body.size());
 
-    for (NodeId expr : cmpd.body)
-        sir_nodes.push_back(visit_and_check(expr));
+    for (NodeId expr : cmpd.body) {
+        SIRNodeId lowered = visit_and_check(expr, true);
+
+        // silent decls in compound expressions are the only exception to null-returning
+        if (lowered.is_null()) {
+            VarDecl* vdecl = ctx.get_and_dyn_cast<VarDecl>(expr);
+
+            if (vdecl == nullptr || !vdecl->is_silent_decl()) {
+                internal_error(
+                    "unexpected null id returned by a compound expression's subnode in the "
+                    "Julia -> SIR lowering visitor.");
+            }
+        } else {
+            sir_nodes.push_back(lowered);
+        }
+    }
 
     return emplace_node<sir::CompoundStmt>(cmpd.location, std::move(sir_nodes));
 }

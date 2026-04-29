@@ -41,7 +41,10 @@ bool SymbolRes::finalize() {
         Expr* expr                 = &expr_ref.get();
 
         BindingType inferred_binding = BindingType::Global;
-        if (infer_src == ScopeInferSrc::Decl) {
+        if (ctx.target_info != nullptr && ctx.target_info->has_builtin_global(ctx.get_sym(sym))) {
+            STC_LOG_REASON("is the name of a builtin global")
+            inferred_binding = BindingType::Global;
+        } else if (infer_src == ScopeInferSrc::Decl) {
             STC_LOG_REASON("is declaration bound")
 
             if (auto* vdecl = dyn_cast<VarDecl>(expr)) {
@@ -178,11 +181,8 @@ void SymbolRes::visit_VarDecl(VarDecl& vdecl) {
     }
 
     // redeclaration as a variable (illegal)
-    std::string_view prev_str = isa<MethodDecl>(prev_decl) ? "method" : "parameter";
-
     error(ctx.src_info_pool, vdecl.location,
-          fmt::format("symbol '{}' redeclared as a variable (previously declared as a {})",
-                      ctx.get_sym(vdecl.identifier), prev_str));
+          fmt::format("symbol '{}' redeclared as a variable", ctx.get_sym(vdecl.identifier)));
     _success = false;
 }
 

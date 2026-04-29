@@ -100,7 +100,7 @@ private:
 
     SIRNodeId fail(std::string_view msg);
     SIRNodeId internal_error(std::string_view msg);
-    SIRNodeId visit_and_check(NodeId id);
+    SIRNodeId visit_and_check(NodeId id, bool accepts_null = false);
 
     // skips id-lookup roundtrip for nodes that have already been looked up
     SIRNodeId visit_ptr(Expr* node);
