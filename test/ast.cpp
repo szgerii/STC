@@ -1,7 +1,7 @@
-#include <catch2/catch_test_macros.hpp>
 #include "ast/context.h"
 #include "ast/visitor.h"
 #include "common/utils.h"
+#include <catch2/catch_test_macros.hpp>
 
 using namespace stc;
 
@@ -18,10 +18,11 @@ enum class DummyKind : uint8_t { Base = 0, Expr = 1, Stmt = 2 };
 struct DummyNodeBase {
     using kind_type = DummyKind;
     DummyKind _kind;
-    
-    explicit DummyNodeBase(DummyKind k) : _kind(k) {}
+
+    explicit DummyNodeBase(DummyKind k)
+        : _kind(k) {}
     virtual ~DummyNodeBase() = default;
-    
+
     DummyKind kind() const { return _kind; }
 
     static DummyNodeBase* safe_cast_to_base(void* ptr, TestId) {
@@ -32,12 +33,14 @@ struct DummyNodeBase {
 struct DummyExpr : DummyNodeBase {
     int value;
     static bool same_node_kind(DummyKind k) { return k == DummyKind::Expr; }
-    DummyExpr(int v) : DummyNodeBase(DummyKind::Expr), value(v) {}
+    DummyExpr(int v)
+        : DummyNodeBase(DummyKind::Expr), value(v) {}
 };
 
 struct DummyStmt : DummyNodeBase {
     static bool same_node_kind(DummyKind k) { return k == DummyKind::Stmt; }
-    DummyStmt() : DummyNodeBase(DummyKind::Stmt) {}
+    DummyStmt()
+        : DummyNodeBase(DummyKind::Stmt) {}
 };
 
 class DummyCtx : public ASTCtx<TestId, DummyNodeBase> {
@@ -50,7 +53,7 @@ TEST_CASE("node emplace and retrieval", "[ASTCtx]") {
 
     SECTION("valid init and id returned") {
         auto [id, expr_ptr] = ctx.emplace_node<DummyExpr>(42);
-        
+
         REQUIRE_FALSE(id.is_null());
         REQUIRE(id.kind_value() == static_cast<uint8_t>(DummyKind::Expr));
         REQUIRE(expr_ptr->value == 42);
@@ -58,7 +61,7 @@ TEST_CASE("node emplace and retrieval", "[ASTCtx]") {
 
     SECTION("get_node") {
         auto [id, expr_ptr] = ctx.emplace_node<DummyExpr>(99);
-        
+
         DummyNodeBase* retrieved = ctx.get_node(id);
         REQUIRE(retrieved != nullptr);
         REQUIRE(retrieved == expr_ptr);
@@ -82,7 +85,7 @@ TEST_CASE("node emplace and retrieval", "[ASTCtx]") {
 
 class TestVisitor : public ASTVisitor<TestVisitor, DummyCtx, int> {
 public:
-    int visit_count = 0;
+    int visit_count          = 0;
     bool skip_next_pre_visit = false;
 
     using ASTVisitor::ASTVisitor;
@@ -96,11 +99,9 @@ public:
         return visit_default_case();
     }
 
-    int visit_default_case() {
-        return -1; 
-    }
+    int visit_default_case() { return -1; }
 
-    bool pre_visit_ptr([[maybe_unused]]DummyNodeBase* node) {
+    bool pre_visit_ptr([[maybe_unused]] DummyNodeBase* node) {
         if (skip_next_pre_visit) {
             skip_next_pre_visit = false;
             return false;
@@ -135,10 +136,10 @@ TEST_CASE("CRTP traversal", "ASTVisitor") {
 
     SECTION("pre-visit cancel") {
         visitor.skip_next_pre_visit = true;
-        
+
         int result = visitor.visit(expr_ptr);
-        
+
         REQUIRE(result == -1);
-        REQUIRE(visitor.visit_count == 0); 
+        REQUIRE(visitor.visit_count == 0);
     }
 }

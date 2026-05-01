@@ -102,7 +102,8 @@ public:
     bool is_inferring() const { return !is_checking(); }
 
 private:
-    void report_type_mismatch(TypeId actual_type, TypeId checked_type, const Expr& expr, std::string_view reason = "") {
+    void report_type_mismatch(TypeId actual_type, TypeId checked_type, const Expr& expr,
+                              std::string_view reason = "") {
         fail(fmt::format("type mismatch during type checking: cannot convert {} to the "
                          "expected {} type{}",
                          type_str(actual_type), type_str(checked_type), reason),
