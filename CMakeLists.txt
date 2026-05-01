@@ -331,24 +331,32 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel
     endif()
 endif()
 
-# libstc
+# lib obj files (needed to support testing of symbols stripped from final binaries)
 
-file(GLOB_RECURSE LIB_HEADERS CONFIGURE_DEPENDS "include/*.h")
-
-set(LIB_SOURCES ${ALL_SOURCES})
+set(LIB_SOURCES ${ALL_SOURCES} )
 list(FILTER LIB_SOURCES EXCLUDE REGEX "sandbox/.*")
 list(FILTER LIB_SOURCES EXCLUDE REGEX "test/.*")
 list(FILTER LIB_SOURCES EXCLUDE REGEX "cli/.*")
 
+set(LIBSTC_OBJ_TARGET stc_objs)
+add_library(${LIBSTC_OBJ_TARGET} OBJECT ${LIB_SOURCES})
+
+target_include_directories(${LIBSTC_OBJ_TARGET} PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(${LIBSTC_OBJ_TARGET} PUBLIC  ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_include_directories(${LIBSTC_OBJ_TARGET} SYSTEM PUBLIC ${JULIA_INCLUDE_DIR})
+
+target_link_libraries(${LIBSTC_OBJ_TARGET} PUBLIC CommonConfig ${JULIA_LIB} fmt::fmt)
+target_compile_definitions(${LIBSTC_OBJ_TARGET} PUBLIC STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
+
+# libstc
+
+file(GLOB_RECURSE LIB_HEADERS CONFIGURE_DEPENDS "include/*.h")
+
 set(LIBSTC_TARGET stc)
-add_library(${LIBSTC_TARGET} SHARED ${LIB_SOURCES})
+add_library(${LIBSTC_TARGET} SHARED $<TARGET_OBJECTS:${LIBSTC_OBJ_TARGET}>)
+target_link_libraries(${LIBSTC_TARGET} PRIVATE ${LIBSTC_OBJ_TARGET})
 
-target_include_directories(${LIBSTC_TARGET} PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_include_directories(${LIBSTC_TARGET} PUBLIC  ${CMAKE_CURRENT_BINARY_DIR}/generated)
-target_include_directories(${LIBSTC_TARGET} SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
-
-target_link_libraries(${LIBSTC_TARGET} PRIVATE CommonConfig ${JULIA_LIB} fmt::fmt)
-target_compile_definitions(${LIBSTC_TARGET} PRIVATE STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
+# target_compile_definitions(${LIBSTC_TARGET} PRIVATE STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
 
 set_target_properties(${LIBSTC_TARGET} PROPERTIES
     VERSION                                 ${PROJECT_VERSION}
@@ -431,8 +439,6 @@ if (BUILD_TESTING)
     endif()
 
     if (FETCH_CATCH2 OR NOT TARGET Catch2::Catch2WithMain)
-        set(FETCHCONTENT_BASE_DIR "${CMAKE_SOURCE_DIR}/_deps_${CMAKE_SYSTEM_NAME}")
-
         FetchContent_Declare(
             Catch2
             GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -446,7 +452,8 @@ if (BUILD_TESTING)
         message(FATAL_ERROR "Catch2 could not be located or fetched, but testing has been explicitly requested.")
     endif()
 
-    add_executable(unit_tests "test/test.cpp")
+    file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "test/*.cpp")
+    add_executable(unit_tests ${TEST_SOURCES})
 
     set_target_properties(unit_tests PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_DEBUG          ${TEST_OUTPUT_DIR}
@@ -455,9 +462,12 @@ if (BUILD_TESTING)
         RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL     ${TEST_OUTPUT_DIR}
     )
 
-    target_link_libraries(unit_tests PRIVATE ${LIBSTC_TARGET} Catch2::Catch2WithMain CommonConfig)
-    target_include_directories(unit_tests PRIVATE include)
-    target_include_directories(unit_tests SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
+    target_link_libraries(unit_tests PRIVATE ${LIBSTC_OBJ_TARGET})
+    target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
+    #target_include_directories(unit_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/generated)
+    #target_include_directories(unit_tests SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
+
+    #target_compile_definitions(unit_tests PRIVATE STC_BUILDING_DLL=1)
 
     # copy lib for test runner
     if (WIN32)
@@ -471,7 +481,11 @@ if (BUILD_TESTING)
     # CTest
     include(CTest)
     enable_testing()
-    add_test(NAME AllTests COMMAND $<TARGET_FILE:unit_tests>)
+    #add_test(NAME AllTests COMMAND $<TARGET_FILE:unit_tests>)
+
+    include(Catch)
+
+    catch_discover_tests(unit_tests)
 
     message(STATUS "Catch2 found, unit_tests target enabled for testing")
 else()

@@ -462,10 +462,7 @@ JLSema::TypeCheckResult JLSema::check(Expr& expr, TypeId checked_type, bool allo
                 }
             }
 
-            fail(fmt::format("type mismatch during type checking: cannot convert {} to the "
-                             "expected {} type{}",
-                             type_str(actual_type), type_str(checked_type), reason),
-                 expr);
+            report_type_mismatch(actual_type, checked_type, expr, reason);
         }
 
         return TypeCheckResult::Incompatible;
@@ -2054,9 +2051,26 @@ TypeId JLSema::visit_Assignment(Assignment& assign) {
         return TypeId::null_id();
     }
 
-    check(assign.value, target_type);
+    if (assign.value.is_null()) {
+        if (!_success)
+            return internal_error("rhs of assignment points to null", assign);
+        return TypeId::null_id();
+    }
 
-    return target_type;
+    auto* val_expr = ctx.get_node(assign.value);
+    assert(val_expr != nullptr);
+
+    TypeCheckResult tcr = check(*val_expr, target_type, false, true);
+
+    if (tcr == TypeCheckResult::Match || tcr == TypeCheckResult::ImplicitCast)
+        return target_type;
+
+    if (tcr == TypeCheckResult::Incompatible)
+        return TypeId::null_id();
+
+    return fail(
+        fmt::format("reassignment of {} to {}", type_str(target_type), type_str(val_expr->type)),
+        assign);
 }
 
 TypeId JLSema::visit_UpdateAssignment(UpdateAssignment& up_assign) {

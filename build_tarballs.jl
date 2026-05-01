@@ -90,7 +90,7 @@ base_platforms = [
     # Platform("aarch64", "macos")
 ]
 
-julia_versions = [v"1.10.0", v"1.11.0", v"1.12.0"]
+julia_versions = [v"1.11.0", v"1.12.0"]
 
 platforms = Platform[]
 for jl_ver in julia_versions
@@ -104,7 +104,7 @@ end
 platforms = expand_cxxstring_abis(platforms)
 
 dependencies = [
-    BuildDependency(PackageSpec(name="libjulia_jll", version="1.10.0")),
+    BuildDependency(PackageSpec(name="libjulia_jll", version="1.11.0")),
     Dependency("Fmt_jll")
 ]
 

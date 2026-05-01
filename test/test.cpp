@@ -1,10 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <temp.h>
+#include "api/transpiler.h"
+#include "meta.h"
 
-TEST_CASE("catch2 base test", "[sanity]") {
-    REQUIRE(1 == 1);
-}
-
-TEST_CASE("library linking base test", "[sanity]") {
-    REQUIRE(stc::Temp::retOne() == 1);
+TEST_CASE("library version test", "[sanity]") {
+    REQUIRE(stc::api::stc_abi_version() == stc::meta::version_major);
 }
