@@ -13,14 +13,14 @@ $interactive = ($args -contains "-i") -or ($args -contains "--interactive");
 # if this is not the case and cl is in path, it can simply be added here
 # otherwise, msvc configs can also just be removed
 $configs = @(
-    @{ Name = "gcc-dbg";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Debug";          NoTidy = "ON";  Profile = $false },
-    @{ Name = "gcc-rel";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Release";        NoTidy = "ON";  Profile = $false },
-    @{ Name = "msvc-dbg";    Gen = "";      CC = "";      CXX = "";        Type = "Debug";          NoTidy = "ON";  Profile = $false },
-    @{ Name = "msvc-rel";    Gen = "";      CC = "";      CXX = "";        Type = "Release";        NoTidy = "ON";  Profile = $false },
-    @{ Name = "clang-dbg";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";          NoTidy = "ON";  Profile = $false },
-    @{ Name = "clang-rel";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Release";        NoTidy = "ON";  Profile = $false },
-    @{ Name = "tidy";        Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";          NoTidy = "OFF"; Profile = $false },
-    @{ Name = "gcc-rwdi";    Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "RelWithDebInfo"; NoTidy = "ON";  Profile = $true }
+    @{ Name = "gcc-dbg";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Debug";          Tidy = $false; Profile = $false },
+    @{ Name = "gcc-rel";     Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "Release";        Tidy = $false; Profile = $false },
+    @{ Name = "msvc-dbg";    Gen = "";      CC = "";      CXX = "";        Type = "Debug";          Tidy = $false; Profile = $false },
+    @{ Name = "msvc-rel";    Gen = "";      CC = "";      CXX = "";        Type = "Release";        Tidy = $false; Profile = $false },
+    @{ Name = "clang-dbg";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";          Tidy = $false; Profile = $false },
+    @{ Name = "clang-rel";   Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Release";        Tidy = $false; Profile = $false },
+    @{ Name = "tidy";        Gen = "Ninja"; CC = "clang"; CXX = "clang++"; Type = "Debug";          Tidy = $true;  Profile = $false },
+    @{ Name = "gcc-rwdi";    Gen = "Ninja"; CC = "gcc";   CXX = "g++";     Type = "RelWithDebInfo"; Tidy = $false; Profile = $true }
 )
 
 $build_timer = [System.Diagnostics.Stopwatch]::StartNew()
@@ -114,11 +114,10 @@ foreach ($cfg in $configs) {
         if ($cfg.CXX) { $cmake_config_args += "-DCMAKE_CXX_COMPILER=$($cfg.CXX)" }
 
         $cmake_config_args += "-DCMAKE_BUILD_TYPE=$($cfg.Type)"
-        $cmake_config_args += "-DNO_SAN=ON"
-        $cmake_config_args += "-DNO_TIDY=$($cfg.NoTidy)"
+        
         $cmake_config_args += "-DBUILD_TESTING=OFF"
-
-        if ($cfg.Profile) { $cmake_config_args += "-DENABLE_PROFILING=ON" }
+        if ($cfg.Tidy)    { $cmake_config_args += "-DSTC_USE_TIDY=ON" }
+        if ($cfg.Profile) { $cmake_config_args += "-DSTC_ENABLE_PROFILING=ON" }
 
         Write-Host "$progress >> cmake $($cmake_config_args -join ' ')`n" -ForegroundColor Yellow
         & cmake $cmake_config_args

@@ -1,44 +1,108 @@
 #!/bin/sh
 
-echo "-- Running pre-commit hook --"
+echo "-- running pre-commit hook --"
 
 skipformat=$(git config --type=bool hooks.skipformat)
 
-if [ "$skipformat" = "true" ]; then
-	exit 0
+if [ "$skipformat" != "true" ]; then
+	echo "-- running clang-format check --"
+	
+	builddir=$(git config --type=path hooks.builddir)
+
+	if [ "$builddir" = "" ]; then
+		builddir="build"
+	fi
+
+	if [ ! -d "$builddir" ]; then
+		echo "ERROR: Build directory '$builddir' not found."
+		echo "Run 'cmake -B build' in the project root, or specify your build directory path through"
+		echo "git config hooks.builddir <build_dir_path>"
+		echo "before trying to commit."
+		exit 1
+	fi
+
+	cmake --build "$builddir" --target check_format > /dev/null 2>&1
+
+	if [ $? -ne 0 ]; then
+		echo ""
+		echo "COMMIT ABORTED: Code style violation(s) found during clang-format check."
+		echo ""
+		echo "You can auto-fix these violations using: cmake --build $builddir --target=fix_format"
+		echo "Or, you can check them manually using: cmake --build $builddir --target=check_format"
+		echo ""
+		echo "Note that these could be violations coming from files not staged for committing."
+		echo "If this is the case, temporarily remove non-staged changes (e.g. 'git stash --keep-index') and try again."
+		echo ""
+		echo "If you want to avoid pre-commit code style enforcement, you can do so by setting:"
+		echo "git config hooks.skipformat true"
+		exit 1
+	fi
+	
+	echo "-- clang-format check passed --"
 fi
 
-builddir=$(git config --type=path hooks.builddir)
+skipnocommit=$(git config --type=bool hooks.skipnocommit)
 
-if [ "$builddir" = "" ]; then
-	builddir="build"
+if [ "$skipnocommit" != "true" ]; then
+	echo "-- running nocommit check --"
+
+	# Author: xezrunner (github.com/xezrunner) [slightly modified here]
+	# Inspired by Jonathan Blow's nocheckin setup with SVN (twitch.tv/j_blow) (youtube.com/@jblow888)
+	# Credits to DustinGadal on r/Jai: reddit.com/r/Jai/comments/jp0vjy/nocheckin_behavior_in_gitsourcetree/gbfhzd1
+
+	# gist.github.com/xezrunner/e6dbafcc21fcbc976c93bdee0f371a08
+
+	# This pre-commit hook checks for the keyword "$NOCHECKIN_KEYWORD" in staged files,then aborts the commit
+	# if any matches were found, with output of file path, line number and match preview.
+
+	# To install, copy and rename to <repo>/.git/hooks/pre-commit (merge contents if already exists)
+	# The file name has to be "pre-commit" for Git to use it. It is also compatible with git GUIs.
+	# On Unix, mark the file as executable with `chmod +x .git/hooks/pre-commit`.
+
+	keyword=${NOCHECKIN_KEYWORD:-nocommit}
+
+	# Use color only when stderr is attached to a real terminal and supports colors:
+	set_grep_color() {
+		if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != "dumb" ]; then
+			grep_color=always
+		else
+			grep_color=never
+		fi
+	}
+
+	git_grep() {
+		git \
+		-c color.grep.filename=normal   \
+		-c color.grep.linenumber=normal \
+		-c color.grep.separator=normal  \
+		grep --cached --color="$grep_color" -n -I -F -e "$keyword" -- "$1" ":!*pre-commit*"
+	}
+
+	find_matches() {
+		git diff --cached --name-only --diff-filter=ACMR |
+		while IFS= read -r path; do
+			git_grep "$path" || :  # '|| :' = Continue on error
+		done
+	}
+
+	# Search for nocheckins:
+	set_grep_color
+	matches=$(find_matches)
+
+	# nocheckin(s) found, block:
+	if [ -n "$matches" ]; then
+		printf 'Commit blocked due to "%s" in staged files:\n\n' "$keyword" >&2
+		printf '%s\n' "$matches" >&2
+
+		echo ""
+		echo "If you want to avoid pre-commit enforcement for nocommit tags, you can do so by setting:"
+		echo "git config hooks.skipnocommit true"
+		exit 1
+	fi
+
+	# Nothing found, continue:
+	echo "-- nocommit check passed  --"
 fi
 
-if [ ! -d "$builddir" ]; then
-	echo "ERROR: Build directory '$builddir' not found."
-	echo "Run 'cmake -B build' in the project root, or specify your build directory path through"
-	echo "git config hooks.builddir <build_dir_path>"
-	echo "before trying to commit."
-	exit 2
-fi
-
-echo "-- Running clang-format check --"
-cmake --build "$builddir" --target check_format > /dev/null 2>&1
-
-if [ $? -ne 0 ]; then
-	echo ""
-	echo "COMMIT ABORTED: Code style violation(s) found during clang-format check."
-	echo ""
-	echo "You can auto-fix these violations using: cmake --build $builddir --target=fix_format"
-	echo "Or, you can check them manually using: cmake --build $builddir --target=check_format"
-	echo ""
-	echo "Note that these could be violations coming from files not staged for committing."
-	echo "If this is the case, temporarily remove non-staged changes (e.g. 'git stash --keep-index') and try again."
-	echo ""
-	echo "If you want to avoid pre-commit code style enforcement, you can do so by setting:"
-	echo "git config hooks.skipformat true"
-	exit 1
-fi
-
-echo "-- clang-format check passed, proceeding with commit --"
+echo "-- all checks passed, proceeding with commit  --"
 exit 0

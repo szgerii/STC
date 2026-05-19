@@ -1,0 +1,99 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.extract.outputs.version }}
+      is_new: ${{ steps.check.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract Version from CMake
+        id: extract
+        run: |
+          VERSION=$(grep -oP '(?<=project\(ShaderTranspilerCore VERSION )[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Check if Tag Exists
+        id: check
+        run: |
+          if git rev-parse "v${{ steps.extract.outputs.version }}" >/dev/null 2>&1; then
+            echo "is_new=false" >> $GITHUB_OUTPUT
+          else
+            echo "is_new=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Tag
+        if: steps.check.outputs.is_new == 'true'
+        run: |
+          git tag "v${{ steps.extract.outputs.version }}"
+          git push origin "v${{ steps.extract.outputs.version }}"
+
+  build-artifacts:
+    needs: check-version
+    if: needs.check-version.outputs.is_new == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        julia: ["1.11", "1.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: v${{ needs.check-version.outputs.version }}
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia }}
+
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DSTC_USE_FORMAT=OFF
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Package Linux Artifacts
+        if: runner.os == 'Linux'
+        run: tar -czvf stc-v${{ needs.check-version.outputs.version }}-linux-julia-v${{ matrix.julia }}.tar.gz -C build bin lib
+
+      - name: Package Windows Artifacts
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path "build\bin\*", "build\lib\*" -DestinationPath "stc-v${{ needs.check-version.outputs.version }}-win-julia-v${{ matrix.julia }}.zip"
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: artifacts-${{ runner.os }}-julia${{ matrix.julia }}
+          path: |
+            *.tar.gz
+            *.zip
+
+  create-release:
+    needs: [check-version, build-artifacts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.check-version.outputs.version }}
+          name: Release v${{ needs.check-version.outputs.version }}
+          draft: true
+          files: dist/*

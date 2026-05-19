@@ -69,8 +69,8 @@ cmake .. -DCMAKE_INSTALL_PREFIX=\${prefix} \\
          -DSTC_JULIA_VERSION=\${ACTUAL_JULIA_VER} \\
          -DSTC_GIT_HASH=$git_hash \\
          -DSTC_BUILD_DATE=\"$build_date\" \\
-         -DNO_DOCS=ON -DNO_SANDBOX=ON -DBUILD_TESTING=OFF \\
-         -DNO_SAN=ON -DNO_TIDY=ON -DNO_FORMAT=ON
+         -DBUILD_TESTING=OFF \\
+         -DSTC_USE_FORMAT=OFF
 
 make -j\${nproc}
 make install

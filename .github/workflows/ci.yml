@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    name: Build & Test (${{ matrix.config.os }}, ${{ matrix.config.compiler }}, Julia v${{ matrix.julia }})
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        julia: ["1.11", "1.12"]
+        config:
+          - os: ubuntu-latest
+            compiler: gcc
+            cxx: g++
+            cc: gcc
+          - os: windows-latest
+            compiler: msvc
+            cxx: cl
+            cc: cl
+
+    env:
+      CC: ${{ matrix.config.cc }}
+      CXX: ${{ matrix.config.cxx }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg cache (for Catch2)
+        if: matrix.config.os == 'windows-latest'
+        uses: actions/cache@v4
+        with:
+          path: C:\vcpkg\installed 
+          key: ${{ runner.os }}-vcpkg-catch2
+
+      - name: Setup Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia }}
+
+      - name: Install JuliaGLM
+        run: julia -e 'using Pkg; Pkg.add(url="https://github.com/Csabix/JuliaGLM#glsl-functions")'
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ matrix.config.os }}-${{ matrix.config.compiler }}
+
+      - name: Install Catch2 (Ubuntu)
+        if: matrix.config.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y catch2
+
+      - name: Install Catch2 (Windows, vcpkg)
+        if: matrix.config.os == 'windows-latest'
+        run: vcpkg install catch2:x64-windows
+
+      - name: Setup CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '4.2.3'
+
+      - name: Configure CMake
+        run: >
+          cmake -B build -S . 
+          -DCMAKE_BUILD_TYPE=Debug 
+          -DBUILD_TESTING=ON 
+          -DSTC_USE_FORMAT=OFF
+          ${{ matrix.config.os == 'windows-latest' && '-DCMAKE_TOOLCHAIN_FILE="C:/vcpkg/scripts/buildsystems/vcpkg.cmake"' || '' }}
+          ${{ matrix.config.compiler == 'gcc' && '-DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"' || '' }}
+
+      - name: Build
+        run: cmake --build build -j 4
+
+      - name: Run Tests
+        working-directory: build
+        run: ctest --output-on-failure
+
+      - name: Generate Coverage (GCC Only)
+        if: matrix.config.compiler == 'gcc'
+        run: |
+          sudo apt-get install -y lcov
+          lcov --capture --directory build --output-file coverage.info
+          lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/test/*' '*/sandbox/*' '*/generated/*' --output-file coverage.info
+
+      - name: Upload Coverage
+        if: matrix.config.compiler == 'gcc'
+        uses: codecov/codecov-action@v4
+        with:
+          file: coverage.info
+          token: ${{ secrets.CODECOV_TOKEN }}

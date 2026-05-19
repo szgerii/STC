@@ -1,3 +1,5 @@
+# TODO: set up CMakePresets instead of CMakeSettings
+
 cmake_minimum_required(VERSION 3.14)
 
 include(FetchContent)
@@ -42,15 +44,14 @@ endif()
 
 # Config
 
-option(FETCH_CATCH2 "Force fetching Catch2 from the github repo, even if it's installed locally" OFF)
-option(NO_CCACHE "Disable compiler caching through ccache, even if it's installed locally" OFF)
-option(NO_TIDY "Disable static analysis through clang-tidy, even if it's installed locally" OFF)
-option(NO_FORMAT "Disable inclusion of clang-format, even if it's installed locally" OFF)
-option(NO_SANDBOX "Disable sandbox targets" OFF)
-option(NO_SAN "Disable address and undefined sanitizers (ASan and UBSan). Might be required with some versions of Julia" OFF)
-option(NO_DOCS "Disable any docs-related targets." OFF)
-option(NO_CLI "Disable CLI target (saves a bit of time in some cases, where it's enough to build the lib)" OFF)
-option(ENABLE_PROFILING "Enables downloading and linking Tracy through FetchContent, and defines the STC_PROFILING macro)" OFF)
+option(STC_BUILD_CLI "Enable CLI target (disabling can save a bit of time in some cases, where it's enough to build the lib)" ON)
+option(STC_BUILD_DOCS "Enable docs-related targets." OFF)
+option(STC_ENABLE_PROFILING "Enables downloading and linking Tracy through FetchContent, and defines the STC_PROFILING macro)" OFF)
+option(STC_BUILD_SANDBOX "Enable sandbox targets" OFF)
+option(STC_USE_CCACHE "Use ccache for compiler caching, if it's installed locally" ON)
+option(STC_USE_FORMAT "Enable formatting targets, if clang-format is installed locally" ON)
+option(STC_USE_TIDY "Enable static analysis through clang-tidy, if it's installed locally" OFF)
+option(STC_USE_SAN "Enable address and undefined behavior sanitizers (ASan and UBSan), if supported. Might be incompatible with some versions of Julia" OFF)
 
 if ("${CMAKE_BUILD_TYPE}" STREQUAL "")
     message(STATUS "No build type specified, defaulting to Debug")
@@ -189,8 +190,8 @@ else()
 endif()
 
 # Tracy
-if (ENABLE_PROFILING)
-    message(STATUS "ENABLE_PROFILING flag provided, Tracy will be fetched through git...")
+if (STC_ENABLE_PROFILING)
+    message(STATUS "STC_ENABLE_PROFILING flag provided, Tracy will be fetched through git...")
     
     set(TRACY_ENABLE ON CACHE BOOL "" FORCE)
     set(TRACY_LTO ON CACHE BOOL "" FORCE)
@@ -206,7 +207,7 @@ endif()
 
 # ccache
 
-if (NOT NO_CCACHE)
+if (STC_USE_CCACHE)
     find_program(CCACHE_EXEC ccache)
     if (CCACHE_EXEC)
         set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_EXEC}")
@@ -217,12 +218,12 @@ if (NOT NO_CCACHE)
         message(STATUS "ccache not found, compiler caching won't be possible")
     endif()
 else()
-    message(STATUS "ccache disabled explicitly")
+    message(STATUS "ccache usage is disabled")
 endif()
 
 # clang-format
 
-if (NOT NO_FORMAT)
+if (STC_USE_FORMAT)
     find_program(CLANG_FORMAT_EXEC NAMES clang-format)
     if (CLANG_FORMAT_EXEC)
         # style checking
@@ -251,12 +252,12 @@ if (NOT NO_FORMAT)
         message(STATUS "clang-format could not be located, code style checking won't be possible.")
     endif()
 else()
-    message(STATUS "clang-format disabled explicitly")
+    message(STATUS "clang-format usage is disabled")
 endif()
 
 # clang-tidy
 
-if (NOT NO_TIDY)
+if (STC_USE_TIDY)
     find_program(CLANG_TIDY_EXEC clang-tidy)
 
     if (CLANG_TIDY_EXEC)
@@ -278,7 +279,7 @@ if (NOT NO_TIDY)
         message(STATUS "clang-tidy could not be located, static analysis won't be possible.")
     endif()
 else()
-    message(STATUS "clang-tidy disabled explicitly")
+    message(STATUS "clang-tidy usage is disabled")
 endif()
 
 add_library(CommonConfig INTERFACE)
@@ -312,7 +313,7 @@ else()
     endif()
 endif()
 
-if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT NO_SAN)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND SAN)
     # enable asan (and force disable incompatible options on MSVC)
     if (MSVC)
         target_compile_options(CommonConfig INTERFACE /fsanitize=address)
@@ -325,14 +326,14 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug" AND NOT NO_SAN)
         string(REPLACE "/ZI" "" CMAKE_C_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}")
 
         target_link_options(CommonConfig INTERFACE "/INCREMENTAL:NO")
-        message(STATUS "ASan enabled for MSVC (detected ${CMAKE_SYSTEM_NAME})")
+        message(STATUS "ASan enabled for MSVC")
     else()
         target_compile_options(CommonConfig INTERFACE
             -fsanitize=address,undefined -fno-omit-frame-pointer -g
         )
 
         target_link_options(CommonConfig INTERFACE -fsanitize=address,undefined)
-        message(STATUS "ASan and UBSan enabled for GCC/Clang/etc (detected ${CMAKE_SYSTEM_NAME})")
+        message(STATUS "ASan and UBSan enabled for GCC/Clang/etc")
     endif()
 endif()
 
@@ -351,9 +352,9 @@ endif()
 # lib obj files (needed to support testing of symbols stripped from final binaries)
 
 set(LIB_SOURCES ${ALL_SOURCES} )
-list(FILTER LIB_SOURCES EXCLUDE REGEX "sandbox/.*")
-list(FILTER LIB_SOURCES EXCLUDE REGEX "test/.*")
-list(FILTER LIB_SOURCES EXCLUDE REGEX "cli/.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "^${CMAKE_CURRENT_SOURCE_DIR}/sandbox/.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "^${CMAKE_CURRENT_SOURCE_DIR}/test/.*")
+list(FILTER LIB_SOURCES EXCLUDE REGEX "^${CMAKE_CURRENT_SOURCE_DIR}/cli/.*")
 
 set(LIBSTC_OBJ_TARGET stc_objs)
 add_library(${LIBSTC_OBJ_TARGET} OBJECT ${LIB_SOURCES})
@@ -365,7 +366,7 @@ target_include_directories(${LIBSTC_OBJ_TARGET} SYSTEM PUBLIC ${JULIA_INCLUDE_DI
 target_link_libraries(${LIBSTC_OBJ_TARGET} PUBLIC CommonConfig ${JULIA_LIB} fmt::fmt)
 target_compile_definitions(${LIBSTC_OBJ_TARGET} PUBLIC STC_BUILDING_DLL=1 JULIA_ENABLE_THREADING=1)
 
-if (ENABLE_PROFILING)
+if (STC_ENABLE_PROFILING)
     target_link_libraries(${LIBSTC_OBJ_TARGET} PUBLIC Tracy::TracyClient)
     target_compile_definitions(${LIBSTC_OBJ_TARGET} PUBLIC TRACY_ENABLE=1 STC_PROFILING=1)
 endif()
@@ -378,7 +379,7 @@ set(LIBSTC_TARGET stc)
 add_library(${LIBSTC_TARGET} SHARED $<TARGET_OBJECTS:${LIBSTC_OBJ_TARGET}>)
 target_link_libraries(${LIBSTC_TARGET} PRIVATE ${LIBSTC_OBJ_TARGET})
 
-if (ENABLE_PROFILING)
+if (STC_ENABLE_PROFILING)
     target_link_libraries(${LIBSTC_TARGET} PRIVATE Tracy::TracyClient)    
 endif()
 
@@ -406,13 +407,13 @@ set_target_properties(${LIBSTC_TARGET} PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY_MINSIZEREL     ${LIB_OUTPUT_DIR}
 )
 
-if (DEFINED CLANG_TIDY_CMD AND NOT NO_TIDY)
+if (STC_USE_TIDY AND DEFINED CLANG_TIDY_CMD)
     set_target_properties(${LIBSTC_TARGET} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_CMD}")
 endif()
 
 # CLI
 
-if (NOT NO_CLI)
+if (STC_BUILD_CLI)
     set(CLI_TARGET stc_cli)
 
     add_executable(${CLI_TARGET}
@@ -438,11 +439,11 @@ if (NOT NO_CLI)
     target_include_directories(${CLI_TARGET} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/cli)
     target_include_directories(${CLI_TARGET} SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
 
-    if (DEFINED CLANG_TIDY_CMD AND NOT NO_TIDY)
+    if (STC_USE_TIDY AND DEFINED CLANG_TIDY_CMD)
         set_target_properties(${CLI_TARGET} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_CMD}")
     endif()
 
-    if (ENABLE_PROFILING)
+    if (STC_ENABLE_PROFILING)
         target_compile_definitions(${CLI_TARGET} PRIVATE STC_PROFILING=1)
     endif()
 
@@ -458,28 +459,16 @@ endif()
 # Catch2 / testing
 
 if (BUILD_TESTING)
-    if (NOT FETCH_CATCH2)
-        find_package(Catch2 3 CONFIG QUIET)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG        v3.12.0
+    )
 
-        if (NOT TARGET Catch2::Catch2WithMain)
-            message(STATUS "Catch2 not found on host, Catch2 will be fetched through git...")
-        endif()
-    else()
-        message(STATUS "FETCH_CATCH flag enabled, Catch2 will be fetched through git...")
-    endif()
-
-    if (FETCH_CATCH2 OR NOT TARGET Catch2::Catch2WithMain)
-        FetchContent_Declare(
-            Catch2
-            GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-            GIT_TAG        v3.12.0
-        )
-
-        FetchContent_MakeAvailable(Catch2)
-    endif()
+    FetchContent_MakeAvailable(Catch2)
 
     if (NOT TARGET Catch2::Catch2WithMain)
-        message(FATAL_ERROR "Catch2 could not be located or fetched, but testing has been explicitly requested.")
+        message(FATAL_ERROR "Catch2 could not be fetched, but testing has been explicitly requested.")
     endif()
 
     file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS "test/*.cpp")
@@ -497,7 +486,7 @@ if (BUILD_TESTING)
     target_link_libraries(unit_tests PRIVATE ${LIBSTC_OBJ_TARGET})
     target_link_libraries(unit_tests PRIVATE Catch2::Catch2WithMain)
 
-    if (ENABLE_PROFILING)
+    if (STC_ENABLE_PROFILING)
         target_link_libraries(unit_tests PRIVATE Tracy::TracyClient)
         target_compile_definitions(unit_tests PRIVATE STC_PROFILING=1)
     endif()
@@ -527,42 +516,65 @@ endif()
 
 # Doxygen (+ Graphviz)
 
-if (NOT NO_DOCS)
+if (STC_BUILD_DOCS)
     find_package(Doxygen COMPONENTS dot)
 
     if (Doxygen_FOUND)
         set(DOXYGEN_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/docs")
 
         set(DOXYGEN_GENERATE_HTML YES)
-
-        set(DOXYGEN_GENERATE_LATEX YES)
-        set(DOXYGEN_USE_PDFLATEX YES)
-        set(DOXYGEN_PDF_HYPERLINKS YES)
-
+        set(DOXYGEN_GENERATE_LATEX NO)
         set(DOXYGEN_RECURSIVE YES)
 
-        # Graphviz
         set(DOXYGEN_HAVE_DOT YES)
         set(DOXYGEN_DOT_IMAGE_FORMAT svg)
+        set(DOXYGEN_INTERACTIVE_SVG YES)
         set(DOXYGEN_DOT_TRANSPARENT YES)
-        set(DOXYGEN_CALL_GRAPH YES)
-        set(DOXYGEN_CALLER_GRAPH YES)
-        set(DOXYGEN_DIRECTORY_GRAPH YES)
+
+        set(DOXYGEN_EXTRACT_ALL YES)
+        set(DOXYGEN_EXTRACT_STATIC YES)
+        set(DOXYGEN_EXTRACT_PRIVATE NO)
+        set(DOXYGEN_EXTRACT_ANON_NSPACES NO)
+
+        set(DOXYGEN_BUILTIN_STL_SUPPORT YES)
+        set(DOXYGEN_MACRO_EXPANSION YES)
+
+        set(DOXYGEN_SOURCE_BROWSER YES)
+        set(DOXYGEN_INLINE_SOURCES NO)
+        set(DOXYGEN_SHOW_FILES YES)
+        set(DOXYGEN_SHOW_USED_FILES YES)
+
+        set(DOXYGEN_EXCLUDE_PATTERNS
+            "*.def"
+            "*.inc"
+            "*/test/*"
+            "*/sandbox/*"
+            "*/examples/*"
+            "*/cli/*"
+        )
 
         set(DOXYGEN_UML_LOOK YES)
         set(DOXYGEN_TEMPLATE_RELATIONS YES)
-        set(DOXYGEN_INCLUDE_GRAPH YES)
-        set(DOXYGEN_INTERACTIVE_SVG YES)
 
         set(DOXYGEN_EXTRACT_ALL YES)
-        set(DOXYGEN_EXTRACT_PRIVATE YES)
-        set(DOXYGEN_EXTRACT_STATIC YES)
+        set(DOXYGEN_EXTRACT_PRIVATE NO)
+        set(DOXYGEN_EXTRACT_STATIC NO)
+        set(DOXYGEN_EXTRACT_ANON_NSPACES NO)
+
+        set(DOXYGEN_CALL_GRAPH NO)
+        set(DOXYGEN_CALLER_GRAPH NO)
+
+        set(DOXYGEN_CLASS_GRAPH YES)
+        set(DOXYGEN_COLLABORATION_GRAPH YES)
+        set(DOXYGEN_DIRECTORY_GRAPH YES)
+        set(DOXYGEN_INCLUDE_GRAPH YES)
+        set(DOXYGEN_INCLUDED_BY_GRAPH YES)
 
         doxygen_add_docs(
             docs
             ${CMAKE_CURRENT_SOURCE_DIR}/include
             ${CMAKE_CURRENT_SOURCE_DIR}/src
-            COMMENT "Generating HTML and LaTeX docs with doxygen..."
+            COMMENT "Generating HTML docs with doxygen..."
         )
 
         message(STATUS "doxygen and graphviz found, docs target enabled")
@@ -570,6 +582,25 @@ if (NOT NO_DOCS)
         find_program(PDFLATEX_COMPILER pdflatex)
 
         if (PDFLATEX_COMPILER)
+        set(DOXYGEN_GENERATE_HTML NO)
+        set(DOXYGEN_GENERATE_LATEX YES)
+        set(DOXYGEN_USE_PDFLATEX YES)
+        set(DOXYGEN_PDF_HYPERLINKS YES)
+
+        set(DOXYGEN_SOURCE_BROWSER NO)
+        set(DOXYGEN_INLINE_SOURCES NO)
+        set(DOXYGEN_SHOW_FILES NO)
+        set(DOXYGEN_SHOW_USED_FILES NO)
+        set(DOXYGEN_DIRECTORY_GRAPH NO)
+
+        set(DOXYGEN_ALPHABETICAL_INDEX NO)
+        set(DOXYGEN_SHOW_NAMESPACES NO)
+
+        set(DOXYGEN_EXTRACT_ALL NO)
+        set(DOXYGEN_HIDE_UNDOC_CLASSES YES)
+        set(DOXYGEN_HIDE_UNDOC_MEMBERS YES)
+
+        set(DOXYGEN_EXCLUDE_SYMBOLS "std::hash*" "*JuliaSymbolCache" "*JuliaTypeCache")
             if (WIN32)
                 set(MAKE_CMD "make.bat")
             else()
@@ -579,8 +610,7 @@ if (NOT NO_DOCS)
             doxygen_add_docs(
                 docs_pdf
                 ${CMAKE_CURRENT_SOURCE_DIR}/include
-                ${CMAKE_CURRENT_SOURCE_DIR}/src
-                COMMENT "Generating HTML and LaTeX docs with doxygen..."
+                COMMENT "Generating LaTeX docs with doxygen..."
             )
 
             add_custom_command(TARGET docs_pdf POST_BUILD
@@ -597,13 +627,18 @@ if (NOT NO_DOCS)
     else()
         message(STATUS "doxygen or graphviz could not be located, docs generation won't be possible.")
     endif()
+else()
+    message(STATUS "docs building is disabled")
 endif()
 
-if (NOT NO_SANDBOX)
+# TODO: do I still need this?
+if (STC_BUILD_SANDBOX)
     # sandbox targets
     # for trying out and playing around with the library
     # cpp files prefixed with sb_ are treated as separate targets
     # other cpp files can be used for includes and such
+
+    message(STATUS "setting up sandbox targets")
 
     file(GLOB SANDBOX_SOURCES "sandbox/sb_*.cpp")
 
@@ -627,7 +662,7 @@ if (NOT NO_SANDBOX)
         target_include_directories(${FNAME} PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/generated)
         target_include_directories(${FNAME} SYSTEM PRIVATE ${JULIA_INCLUDE_DIR})
 
-        if (DEFINED CLANG_TIDY_CMD AND NOT NO_TIDY)
+        if (STC_USE_TIDY AND DEFINED CLANG_TIDY_CMD)
             set_target_properties(${FNAME} PROPERTIES CXX_CLANG_TIDY "${CLANG_TIDY_CMD}")
         endif()
 
@@ -649,7 +684,11 @@ if (NOT NO_SANDBOX)
                 CONDITION $<CONFIG:${CMAKE_BUILD_TYPE}>
             )
         endif()
+
+        message(STATUS "found and created sandbox target '${FNAME}'")
     endforeach()
+else()
+    message(STATUS "sandbox building is disabled")
 endif()
 
 # install lib, cli and pkg api headers
