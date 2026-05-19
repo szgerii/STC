@@ -62,7 +62,7 @@ jobs:
         run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DSTC_USE_FORMAT=OFF
 
       - name: Build
-        run: cmake --build build --config Release -j 4
+        run: cmake --build build --config Release -j
 
       - name: Package Linux Artifacts
         if: runner.os == 'Linux'

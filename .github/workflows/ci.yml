@@ -46,20 +46,12 @@ jobs:
           version: ${{ matrix.julia }}
 
       - name: Install JuliaGLM
-        run: julia -e 'using Pkg; Pkg.add(url="https://github.com/Csabix/JuliaGLM#glsl-functions")'
+        run: julia -e 'using Pkg; Pkg.add(url="https://github.com/Csabix/JuliaGLM", rev="glsl-functions")'
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1.2
         with:
           key: ${{ matrix.config.os }}-${{ matrix.config.compiler }}
-
-      - name: Install Catch2 (Ubuntu)
-        if: matrix.config.os == 'ubuntu-latest'
-        run: sudo apt-get update && sudo apt-get install -y catch2
-
-      - name: Install Catch2 (Windows, vcpkg)
-        if: matrix.config.os == 'windows-latest'
-        run: vcpkg install catch2:x64-windows
 
       - name: Setup CMake
         uses: jwlawson/actions-setup-cmake@v2
@@ -76,7 +68,7 @@ jobs:
           ${{ matrix.config.compiler == 'gcc' && '-DCMAKE_CXX_FLAGS="--coverage" -DCMAKE_C_FLAGS="--coverage"' || '' }}
 
       - name: Build
-        run: cmake --build build -j 4
+        run: cmake --build build -j
 
       - name: Run Tests
         working-directory: build
@@ -86,8 +78,16 @@ jobs:
         if: matrix.config.compiler == 'gcc'
         run: |
           sudo apt-get install -y lcov
-          lcov --capture --directory build --output-file coverage.info
-          lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/test/*' '*/sandbox/*' '*/generated/*' --output-file coverage.info
+          lcov --capture --directory build \
+            --exclude '/usr/*' \
+            --exclude '*/test/*' \
+            --exclude '*/sandbox/*' \
+            --exclude '*/generated/*' \
+            --exclude '*/_deps/*' \
+            --ignore-errors unused \
+            --output-file coverage.info
+          lcov --ignore-errors unused --remove coverage.info '/usr/*' '*/test/*' '*/sandbox/*' '*/generated/*' '*/_deps/*' \
+            --output-file coverage.info
 
       - name: Upload Coverage
         if: matrix.config.compiler == 'gcc'
