@@ -1,5 +1,7 @@
 # Shader Transpiler Core
 
+[![CI](https://github.com/ShaderTranspiler/stc/actions/workflows/ci.yml/badge.svg)](https://github.com/ShaderTranspiler/stc/actions/workflows/ci.yml)
+
 **NOTE:** This README file is overdue for a complete rewrite.
 
 _Shader Transpiler Core_ (STC) is a transpiler that aims to translate code snippets coming from CPU-side imperative/general purpose languages to shader languages. The main purpose is to be able to provide an automatic interface through which the end user doesn't even have to be aware that their code is being transpiled and run on the GPU. This means that instead of adding a bunch of decorators/attributes to the source language and requiring the end user to think in terms of coding for the GPU, the code is mostly transpiled as it would behave in the source context. So the goal is to allow "trivial" GPU-side parallelization of arbitrary CPU-side user code, as long as it doesn't rely on CPU or source language features that would make this impossible.
